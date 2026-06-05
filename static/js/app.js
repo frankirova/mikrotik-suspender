@@ -11,7 +11,6 @@ const $$ = (sel) => document.querySelectorAll(sel);
 const dom = {
   ip:         $('#ip'),
   date:       $('#date'),
-  csvPath:    $('#csv-path'),
   previewBtn: $('#btn-preview'),
   execBtn:    $('#btn-exec'),
   alert:      $('#alert'),
@@ -70,10 +69,8 @@ function todayStr() {
 async function handlePreview(execute = false) {
   const ip   = dom.ip.value.trim();
   const date = dom.date.value || todayStr();
-  const csvPath = dom.csvPath.value.trim();
 
-  if (!ip)     { showAlert('Ingresá la IP del MikroTik', 'error'); return; }
-  if (!csvPath){ showAlert('Ingresá la ruta del CSV', 'error'); return; }
+  if (!ip) { showAlert('Ingresá la IP del MikroTik', 'error'); return; }
 
   const btn = execute ? dom.execBtn : dom.previewBtn;
   setBtnLoading(btn, true);
@@ -83,7 +80,6 @@ async function handlePreview(execute = false) {
     const result = await api('POST', endpoint, {
       IP_MIKROTIK: ip,
       DATE: date,
-      CSV_PATH: csvPath,
     });
 
     if (execute) {
@@ -183,7 +179,7 @@ function init() {
   dom.refreshOptBtn.addEventListener('click', loadOptions);
 
   // Enter en inputs
-  dom.csvPath.addEventListener('keydown', (e) => {
+  dom.ip.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') handlePreview(false);
   });
   dom.optionInput.addEventListener('keydown', (e) => {

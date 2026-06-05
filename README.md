@@ -78,8 +78,8 @@ curl http://127.0.0.1:8000/readOptions
 
 | Método | Ruta | Body | Respuesta | Qué hace |
 |--------|------|------|-----------|----------|
-| `POST` | `/preview` | `{IP_MIKROTIK, DATE, CSV_PATH}` | `[[{id, comment}], [{id, comment}]]` | Muestra qué IPs se suspenderían sin ejecutar |
-| `POST` | `/script` | `{IP_MIKROTIK, DATE, CSV_PATH}` | `{"message": "done"}` | Ejecuta la suspensión en el router |
+| `POST` | `/preview` | `{IP_MIKROTIK, DATE}` | `[[{id, comment}], [{id, comment}]]` | Muestra qué IPs se suspenderían sin ejecutar |
+| `POST` | `/script` | `{IP_MIKROTIK, DATE}` | `{"message": "done"}` | Ejecuta la suspensión en el router |
 | `POST` | `/addOptions` | — | `{"message": "..."}` | Inserta las IPs por defecto en la DB (idempotente) |
 | `GET` | `/readOptions` | — | `{"data": ["ip1", "ip2"]}` | Lista las IPs guardadas |
 | `POST` | `/addDoc` | `{"option": "x.x.x.x"}` | `{"message": "..."}` | Agrega una IP a las opciones |
@@ -131,12 +131,12 @@ curl http://127.0.0.1:8000/health
 # Preview
 curl -X POST http://127.0.0.1:8000/preview \
   -H "Content-Type: application/json" \
-  -d '{"IP_MIKROTIK":"192.168.88.1","DATE":"2025-06-01","CSV_PATH":"data/clientes.csv"}'
+  -d '{"IP_MIKROTIK":"192.168.88.1","DATE":"2025-06-01"}'
 
 # Ejecutar
 curl -X POST http://127.0.0.1:8000/script \
   -H "Content-Type: application/json" \
-  -d '{"IP_MIKROTIK":"192.168.88.1","DATE":"2025-06-01","CSV_PATH":"data/clientes.csv"}'
+  -d '{"IP_MIKROTIK":"192.168.88.1","DATE":"2025-06-01"}'
 
 # Leer opciones guardadas
 curl http://127.0.0.1:8000/readOptions
@@ -260,8 +260,8 @@ Esto permite **cambiar CSV por Excel** o **MikroTik por Cisco** con solo escribi
 La lógica vive en `SuspensionUseCases` y tiene dos métodos públicos:
 
 ```python
-async def preview(self, csv_path, mikrotik_ip, date) -> SuspensionPreview
-async def execute(self, csv_path, mikrotik_ip, date) -> None
+async def preview(self, mikrotik_ip, date) -> SuspensionPreview
+async def execute(self, mikrotik_ip, date) -> None
 ```
 
 Ambos comparten dos helpers privados:
@@ -291,7 +291,7 @@ El endpoint `/script` setea `disabled=false` para **activar** la suspensión de 
 
 ### `adapters/csv_sheet_reader.py` — caching
 
-El reader mantiene un cache en memoria indexado por `(path, mtime)`. Si la API recibe varios requests seguidos, el CSV no se re-parsea. Cuando el archivo cambia (mtime nuevo), se invalida y se re-lee.
+El reader mantiene un cache en memoria invalidado por `mtime`. La ruta del CSV se inyecta en construcción (viene de `config.csv_path` por default), así que cada instancia lee siempre del mismo archivo. Si la API recibe varios requests seguidos, el CSV no se re-parsea. Cuando el archivo cambia (mtime nuevo), se invalida y se re-lee.
 
 ---
 

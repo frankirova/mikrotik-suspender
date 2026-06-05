@@ -13,8 +13,8 @@ class SheetReader(ABC):
     """Port for reading entries from a spreadsheet."""
 
     @abstractmethod
-    async def read_entries(self, csv_path: str) -> list[SheetEntry]:
-        """Read client IPs and names from the given CSV file."""
+    async def read_entries(self) -> list[SheetEntry]:
+        """Read client IPs and names from the configured CSV source."""
         ...
 
 

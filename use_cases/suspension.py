@@ -66,12 +66,11 @@ class SuspensionUseCases:
 
     async def preview(
         self,
-        csv_path: str,
         mikrotik_ip: str,
         date: str,
     ) -> SuspensionPreview:
         """Preview what would be suspended. Also syncs new entries (matching original behaviour)."""
-        sheet_entries = await self._sheets.read_entries(csv_path)
+        sheet_entries = await self._sheets.read_entries()
         await self._mikrotik.connect(mikrotik_ip)
 
         current_list = await self._mikrotik.get_address_list(SUSPEND_LIST)
@@ -84,12 +83,11 @@ class SuspensionUseCases:
 
     async def execute(
         self,
-        csv_path: str,
         mikrotik_ip: str,
         date: str,
     ) -> None:
         """Execute the suspension: sync, disable entries, and update comments."""
-        sheet_entries = await self._sheets.read_entries(csv_path)
+        sheet_entries = await self._sheets.read_entries()
         await self._mikrotik.connect(mikrotik_ip)
 
         current_list = await self._mikrotik.get_address_list(SUSPEND_LIST)

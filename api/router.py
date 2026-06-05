@@ -30,7 +30,6 @@ async def preview(body: SuspensionRequest) -> list[list[dict[str, str]]]:
     try:
         uc = get_suspension_use_cases()
         result = await uc.preview(
-            csv_path=body.CSV_PATH,
             mikrotik_ip=body.IP_MIKROTIK,
             date=body.DATE,
         )
@@ -49,7 +48,6 @@ async def script(body: SuspensionRequest) -> dict[str, str]:
     try:
         uc = get_suspension_use_cases()
         await uc.execute(
-            csv_path=body.CSV_PATH,
             mikrotik_ip=body.IP_MIKROTIK,
             date=body.DATE,
         )

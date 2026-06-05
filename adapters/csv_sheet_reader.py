@@ -22,30 +22,24 @@ REQUIRED_HEADERS = ("ip", "nombre")
 class CSVSheetReader(SheetReader):
     """Reads IP → client-name mappings from a local CSV file."""
 
-    def __init__(self, default_path: Path | None = None) -> None:
+    def __init__(self, csv_path: Path | None = None) -> None:
         from core.config import config
-        self._default_path: Path = default_path or config.csv_path
-        self._cached_path: Path | None = None
+        self._csv_path: Path = csv_path or config.csv_path
         self._cached_mtime: float = 0.0
         self._cached_entries: list[SheetEntry] = []
 
-    async def read_entries(self, csv_path: str) -> list[SheetEntry]:
-        path = Path(csv_path) if csv_path else self._default_path
+    async def read_entries(self) -> list[SheetEntry]:
+        path = self._csv_path
 
         if not path.exists():
             logger.warning("CSV not found at %s — returning empty list", path)
             return []
 
         mtime = path.stat().st_mtime
-        if (
-            self._cached_entries
-            and self._cached_path == path
-            and self._cached_mtime == mtime
-        ):
+        if self._cached_entries and self._cached_mtime == mtime:
             return list(self._cached_entries)
 
         entries = self._parse(path)
-        self._cached_path = path
         self._cached_mtime = mtime
         self._cached_entries = entries
         logger.info("Loaded %d entries from %s", len(entries), path)

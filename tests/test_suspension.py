@@ -18,7 +18,7 @@ from use_cases.suspension import SuspensionUseCases
 class _FakeSheetReader(SheetReader):
     entries: list[SheetEntry]
 
-    async def read_entries(self, csv_path: str) -> list[SheetEntry]:
+    async def read_entries(self) -> list[SheetEntry]:
         return self.entries
 
 
@@ -83,7 +83,6 @@ def use_cases(sheets, mikrotik) -> SuspensionUseCases:
 @pytest.mark.asyncio
 async def test_preview_returns_new_and_existing_entries(use_cases):
     result = await use_cases.preview(
-        csv_path="test!A1:B25",
         mikrotik_ip="192.168.1.1",
         date="2025-01-15",
     )
@@ -103,7 +102,6 @@ async def test_preview_returns_new_and_existing_entries(use_cases):
 @pytest.mark.asyncio
 async def test_execute_disables_and_updates_comments(use_cases, mikrotik):
     await use_cases.execute(
-        csv_path="test!A1:B25",
         mikrotik_ip="192.168.1.1",
         date="2025-01-15",
     )

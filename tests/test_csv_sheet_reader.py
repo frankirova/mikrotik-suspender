@@ -17,8 +17,8 @@ async def test_reads_valid_csv(tmp_path: Path) -> None:
     csv = tmp_path / "clientes.csv"
     _write_csv(csv, "ip,nombre\n192.168.88.10,Alice\n192.168.88.11,Bob\n")
 
-    reader = CSVSheetReader()
-    entries = await reader.read_entries(str(csv))
+    reader = CSVSheetReader(csv_path=csv)
+    entries = await reader.read_entries()
 
     assert len(entries) == 2
     assert entries[0].ip == "192.168.88.10"
@@ -29,8 +29,8 @@ async def test_reads_valid_csv(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_returns_empty_when_file_missing(tmp_path: Path) -> None:
-    reader = CSVSheetReader()
-    entries = await reader.read_entries(str(tmp_path / "does-not-exist.csv"))
+    reader = CSVSheetReader(csv_path=tmp_path / "does-not-exist.csv")
+    entries = await reader.read_entries()
     assert entries == []
 
 
@@ -39,8 +39,8 @@ async def test_returns_empty_for_empty_file(tmp_path: Path) -> None:
     csv = tmp_path / "empty.csv"
     _write_csv(csv, "")
 
-    reader = CSVSheetReader()
-    entries = await reader.read_entries(str(csv))
+    reader = CSVSheetReader(csv_path=csv)
+    entries = await reader.read_entries()
     assert entries == []
 
 
@@ -49,9 +49,9 @@ async def test_raises_when_required_headers_missing(tmp_path: Path) -> None:
     csv = tmp_path / "bad.csv"
     _write_csv(csv, "ip,cliente\n192.168.88.10,Alice\n")
 
-    reader = CSVSheetReader()
+    reader = CSVSheetReader(csv_path=csv)
     with pytest.raises(ValueError, match="missing required headers"):
-        await reader.read_entries(str(csv))
+        await reader.read_entries()
 
 
 @pytest.mark.asyncio
@@ -59,8 +59,8 @@ async def test_skips_blank_ip_rows(tmp_path: Path) -> None:
     csv = tmp_path / "clientes.csv"
     _write_csv(csv, "ip,nombre\n192.168.88.10,Alice\n,Orphan\n192.168.88.11,Bob\n")
 
-    reader = CSVSheetReader()
-    entries = await reader.read_entries(str(csv))
+    reader = CSVSheetReader(csv_path=csv)
+    entries = await reader.read_entries()
 
     assert len(entries) == 2
     assert [e.ip for e in entries] == ["192.168.88.10", "192.168.88.11"]
@@ -72,15 +72,14 @@ async def test_mtime_cache_hits_when_unchanged(tmp_path: Path) -> None:
     csv = tmp_path / "clientes.csv"
     _write_csv(csv, "ip,nombre\n192.168.88.10,Alice\n")
 
-    reader = CSVSheetReader()
-    first = await reader.read_entries(str(csv))
+    reader = CSVSheetReader(csv_path=csv)
+    first = await reader.read_entries()
     # The internal cache is populated after the first read.
     assert reader._cached_entries == first
-    assert reader._cached_path == csv
     assert reader._cached_mtime == csv.stat().st_mtime
 
     # A second read with no file change returns the same cached list.
-    second = await reader.read_entries(str(csv))
+    second = await reader.read_entries()
     assert first == second
 
 
@@ -90,8 +89,8 @@ async def test_mtime_cache_invalidates_on_change(tmp_path: Path) -> None:
     csv = tmp_path / "clientes.csv"
     _write_csv(csv, "ip,nombre\n192.168.88.10,Alice\n")
 
-    reader = CSVSheetReader()
-    await reader.read_entries(str(csv))
+    reader = CSVSheetReader(csv_path=csv)
+    await reader.read_entries()
 
     # Rewrite the file — mtime will be newer (or same second, but content differs).
     _write_csv(csv, "ip,nombre\n192.168.88.10,AliceRenamed\n")
@@ -100,5 +99,5 @@ async def test_mtime_cache_invalidates_on_change(tmp_path: Path) -> None:
     new_mtime = csv.stat().st_mtime + 5
     os.utime(csv, (new_mtime, new_mtime))
 
-    entries = await reader.read_entries(str(csv))
+    entries = await reader.read_entries()
     assert entries[0].name == "AliceRenamed"
