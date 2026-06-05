@@ -1,7 +1,11 @@
 """Application entry point — composition root.
 
 Only this file knows how everything is assembled.
-Run with: uvicorn main:api --reload
+
+The app can be driven three different ways:
+  - HTTP server: uvicorn main:api --reload
+  - CLI:         python -m cli preview --mikrotik <ip>
+  - Docker:      docker compose up -d
 """
 
 from __future__ import annotations

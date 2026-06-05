@@ -8,24 +8,26 @@ significantly.
 
 ## High priority — security
 
-### Authentication on all endpoints
+### ~~Authentication on all endpoints~~ (closed in v0.2.0)
 
-**Status**: None of the 5 endpoints (`/preview`, `/script`,
-`/addOptions`, `/readOptions`, `/addDoc`) require authentication.
+**Status**: ✅ Implemented — `Authorization: Bearer <API_KEY>`
+gates all sensitive endpoints. The key is read from the `API_KEY`
+env var; when unset, the dependency is a no-op (dev mode) and a
+loud WARNING is logged at startup. `/health` and `/` (static
+frontend) remain public.
 
-**Risk**: The default `HOST=127.0.0.1` mitigates this for local
-deployments, but anyone with network access to the service can:
+- Implementation: `api/auth.py` with `verify_api_key` FastAPI
+  dependency; uses `secrets.compare_digest()` for timing-safe
+  comparison.
+- Optional, not required: keeps dev frictionless. Owners who
+  expose the service to a non-loopback network **must** set
+  `API_KEY` (see README, "Authentication" section).
 
-- Trigger MikroTik firewall changes (suspend / unsuspend IPs).
-- Read and modify the SQLite options database.
-- Read and modify the local CSV.
+For higher security needs (mTLS, reverse proxy auth), the same
+threat model applies — see the previous risk list below for
+context, and the Authentication section in the README for setup.
 
-**Fix options** (in order of complexity):
-
-1. API key in `Authorization: Bearer` header — simplest.
-2. mTLS for service-to-service — strongest.
-3. Front with an authenticating reverse proxy (Caddy, nginx,
-   Traefik) — flexible, doesn't require code changes.
+### IP address validation
 
 ### IP address validation
 
@@ -60,6 +62,17 @@ cross-origin and the CORS spec explicitly forbids this combination.
 
 ## Medium priority — operations
 
+### Tag v0.2.0
+
+The first public release (v0.1.0) was tagged at the initial commit.
+Since then the repo has accumulated 4 new features (CSV cleanup,
+optional Bearer auth, Docker support, CLI). Tag a new release:
+
+```bash
+git tag -a v0.2.0 -m "Bearer auth, Docker support, CLI for technicians"
+git push origin v0.2.0
+```
+
 ### CI pipeline (GitHub Actions)
 
 Add a workflow (`.github/workflows/ci.yml`) that runs on PRs and
@@ -70,16 +83,7 @@ Add a workflow (`.github/workflows/ci.yml`) that runs on PRs and
 - `pip-audit -r requirements.txt` (catches new CVEs in deps)
 - Optional: `ruff check` or `flake8` for linting (not currently
   configured).
-
-### Tag v0.1.0
-
-Mark the first public release with a git tag. The current HEAD
-is the initial public commit.
-
-```bash
-git tag -a v0.1.0 -m "Initial opensource release"
-git push origin v0.1.0
-```
+- Optional: `docker build` smoke test (catches Dockerfile breakage).
 
 ### Online demo deployment
 
