@@ -53,6 +53,13 @@ async function api(method, path, body) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(path, opts);
+  if (res.status === 401) {
+    throw new Error(
+      'Esta API requiere autenticación (API_KEY configurada en el server). ' +
+      'Este frontend es solo para desarrollo sin auth. ' +
+      'Usá curl o un cliente HTTP enviando "Authorization: Bearer <api-key>".'
+    );
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || `HTTP ${res.status}`);

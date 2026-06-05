@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from api.schemas import SuspensionRequest, AddOptionRequest
 from api.dependencies import get_suspension_use_cases, get_options_use_cases
+from api.auth import verify_api_key
 from bootstrap import DEFAULT_OPTIONS
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ router = APIRouter()
 
 # ── Suspension endpoints ──────────────────────────────────────
 
-@router.post("/preview")
+@router.post("/preview", dependencies=[Depends(verify_api_key)])
 async def preview(body: SuspensionRequest) -> list[list[dict[str, str]]]:
     """Preview what would happen when suspending the listed IPs.
 
@@ -42,7 +43,7 @@ async def preview(body: SuspensionRequest) -> list[list[dict[str, str]]]:
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.post("/script")
+@router.post("/script", dependencies=[Depends(verify_api_key)])
 async def script(body: SuspensionRequest) -> dict[str, str]:
     """Execute the suspension on the MikroTik device."""
     try:
@@ -60,7 +61,7 @@ async def script(body: SuspensionRequest) -> dict[str, str]:
 # ── Options endpoints ─────────────────────────────────────────
 
 
-@router.post("/addOptions")
+@router.post("/addOptions", dependencies=[Depends(verify_api_key)])
 async def add_options() -> dict[str, str]:
     """Insert the default IP options into the SQLite database (idempotent)."""
     try:
@@ -72,7 +73,7 @@ async def add_options() -> dict[str, str]:
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get("/readOptions")
+@router.get("/readOptions", dependencies=[Depends(verify_api_key)])
 async def read_options() -> dict[str, list[str]]:
     """Return all stored option IPs."""
     try:
@@ -84,7 +85,7 @@ async def read_options() -> dict[str, list[str]]:
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.post("/addDoc")
+@router.post("/addDoc", dependencies=[Depends(verify_api_key)])
 async def add_doc(body: AddOptionRequest) -> dict[str, str]:
     """Add a single option IP."""
     try:

@@ -8,15 +8,15 @@ Automatiza el bloqueo (suspensión) de direcciones IP en un **MikroTik RouterOS*
 
 ## ⚠️ Aviso de seguridad
 
-Esta herramienta se distribuye **sin autenticación en ninguno de sus endpoints**. Por defecto escucha en `127.0.0.1` (únicamente loopback) y asume una red local de confianza.
+Por defecto escucha en `127.0.0.1` (únicamente loopback) y asume una red local de confianza. **Soportá autenticación opcional vía Bearer token** (ver [Authentication](#authentication) abajo), pero la deja **desactivada** para no romper el dev local.
 
-**No expongas este servicio directamente a internet** — cualquier visitante podría:
+**No expongas este servicio directamente a internet sin activar la auth** — cualquier visitante podría:
 
 - Ejecutar cambios en el firewall del MikroTik (suspender / des-suspender IPs arbitrarias).
 - Leer y modificar las IPs de opciones almacenadas.
 - Leer y modificar el CSV local.
 
-Si necesitas exponerlo más allá de tu máquina, DEBES agregar autenticación primero (API key, mTLS, o un reverse proxy con autenticación). El diseño original asume que un operador ejecuta la herramienta en su workstation y dispara las suspensiones de forma manual. Ver [TECHNICAL_DEBT.md](./TECHNICAL_DEBT.md) para la lista completa de mejoras planeadas.
+Activá `API_KEY` en tu `.env` antes de exponer el servicio más allá de tu workstation. Para escenarios de producción más estrictos considerá también un reverse proxy con TLS. El diseño original asume que un operador ejecuta la herramienta en su máquina y dispara las suspensiones de forma manual. Ver [TECHNICAL_DEBT.md](./TECHNICAL_DEBT.md) para la lista completa de mejoras planeadas.
 
 ---
 
@@ -76,14 +76,14 @@ curl http://127.0.0.1:8000/readOptions
 
 ## API Endpoints
 
-| Método | Ruta | Body | Respuesta | Qué hace |
-|--------|------|------|-----------|----------|
-| `POST` | `/preview` | `{IP_MIKROTIK, DATE}` | `[[{id, comment}], [{id, comment}]]` | Muestra qué IPs se suspenderían sin ejecutar |
-| `POST` | `/script` | `{IP_MIKROTIK, DATE}` | `{"message": "done"}` | Ejecuta la suspensión en el router |
-| `POST` | `/addOptions` | — | `{"message": "..."}` | Inserta las IPs por defecto en la DB (idempotente) |
-| `GET` | `/readOptions` | — | `{"data": ["ip1", "ip2"]}` | Lista las IPs guardadas |
-| `POST` | `/addDoc` | `{"option": "x.x.x.x"}` | `{"message": "..."}` | Agrega una IP a las opciones |
-| `GET` | `/health` | — | `{"status": "ok"}` | Health check |
+| Método | Ruta | Auth | Body | Respuesta | Qué hace |
+|--------|------|------|------|-----------|----------|
+| `POST` | `/preview` | Bearer | `{IP_MIKROTIK, DATE}` | `[[{id, comment}], [{id, comment}]]` | Muestra qué IPs se suspenderían sin ejecutar |
+| `POST` | `/script` | Bearer | `{IP_MIKROTIK, DATE}` | `{"message": "done"}` | Ejecuta la suspensión en el router |
+| `POST` | `/addOptions` | Bearer | — | `{"message": "..."}` | Inserta las IPs por defecto en la DB (idempotente) |
+| `GET` | `/readOptions` | Bearer | — | `{"data": ["ip1", "ip2"]}` | Lista las IPs guardadas |
+| `POST` | `/addDoc` | Bearer | `{"option": "x.x.x.x"}` | `{"message": "..."}` | Agrega una IP a las opciones |
+| `GET` | `/health` | — | — | `{"status": "ok"}` | Health check |
 
 ### Formato de `/preview`
 
@@ -143,6 +143,56 @@ curl http://127.0.0.1:8000/readOptions
 ```
 
 ---
+
+## Authentication
+
+Los endpoints de la API (todos menos `/health`) requieren un Bearer token **si y solo si** la variable de entorno `API_KEY` está configurada. Si `API_KEY` está vacía o no está definida, la API corre **sin autenticación** y se loguea un WARNING grande al arranque.
+
+**Diseñado así** para que el dev local funcione out-of-the-box. **Activá la auth antes de exponer el servicio más allá de tu workstation**.
+
+### Setup
+
+```bash
+# 1. Generá una key segura:
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+
+# 2. Pegala en tu .env:
+API_KEY=la_key_que_te_dio_el_paso_1
+
+# 3. Reiniciá el servicio. Vas a ver el WARNING desaparecer y los
+#    endpoints protegidos ahora rechazan requests sin Authorization header.
+```
+
+### Uso desde curl
+
+```bash
+# Sin auth (rechazado 401):
+curl -X POST http://127.0.0.1:8000/preview \
+  -H "Content-Type: application/json" \
+  -d '{"IP_MIKROTIK":"192.168.88.1","DATE":"2025-06-01"}'
+
+# Con auth (OK):
+curl -X POST http://127.0.0.1:8000/preview \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer la_key_que_te_dio_el_paso_1" \
+  -d '{"IP_MIKROTIK":"192.168.88.1","DATE":"2025-06-01"}'
+```
+
+### Qué endpoints se protegen
+
+| Endpoint | Auth |
+|---|---|
+| `/health` | Pública (para health checks externos) |
+| `/preview`, `/script` | Bearer (ejecuta cambios en MikroTik) |
+| `/addOptions`, `/readOptions`, `/addDoc` | Bearer (lee/modifica DB) |
+
+### Frontend web
+
+El frontend estático (`/`) **no está integrado con la auth** — está pensado para uso en dev sin auth. Si activás `API_KEY`, vas a ver un error 401 amigable en la UI explicando cómo autenticarte desde curl o un cliente HTTP. Si necesitás un frontend protegido, abrí un issue.
+
+### Comparación timing-safe
+
+La comparación del token usa `secrets.compare_digest()` (no `==`) para evitar timing attacks que podrían filtrar el token byte a byte.
 
 ## Setup paso a paso
 
