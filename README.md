@@ -240,6 +240,64 @@ curl http://127.0.0.1:8000/health
 
 ---
 
+## Docker (recomendado para dueños de WISP)
+
+Si querés un setup "install-and-forget", la forma más simple es Docker Compose. Asume Docker Desktop (Windows/Mac) o Docker Engine (Linux) instalado.
+
+### Setup con docker compose
+
+```bash
+# 1. Configurá tus credenciales
+cp .env.example .env
+# Editá .env: USER_MIKROTIK, PASS_MIKROTIK y (opcional) API_KEY
+
+# 2. Build + arrancar en background
+docker compose up -d
+
+# 3. Verificar
+docker compose ps
+curl http://127.0.0.1:8000/health
+
+# 4. Abrir el panel web
+# http://127.0.0.1:8000
+```
+
+Los datos (CSV de clientes y DB de opciones) persisten en un **named volume** (`mikrotik_data`) — sobreviven reinicios del container.
+
+### Comandos útiles
+
+```bash
+docker compose logs -f          # seguir logs
+docker compose restart          # reiniciar
+docker compose pull && docker compose up -d --build   # actualizar tras un pull
+docker compose down             # parar (datos persisten)
+docker compose down -v          # parar y BORRAR datos (¡cuidado!)
+```
+
+### Sin docker compose (técnicos)
+
+```bash
+docker build -t mikrotik-suspender .
+
+docker run -d \
+  --name mikrotik-suspender \
+  --restart unless-stopped \
+  -p 8000:8000 \
+  --env-file .env \
+  -v mikrotik_data:/app/data \
+  mikrotik-suspender
+
+docker logs -f mikrotik-suspender
+```
+
+### Notas sobre Docker
+
+- El container escucha en `0.0.0.0:8000` (ignora el `HOST=127.0.0.1` del `.env.example`, que es para uso sin Docker).
+- El healthcheck interno contra `/health` hace que `docker compose ps` muestre el estado real.
+- Si activás `API_KEY` en el `.env`, el panel web va a mostrar errores 401 (esperado — la UI es dev-only). Usá curl con `Authorization: Bearer <key>` o abrí un issue si querés una UI protegida.
+
+---
+
 ## Bootstrap (auto-arranque)
 
 Al iniciar, la app ejecuta `bootstrap.run()` (idempotente):
