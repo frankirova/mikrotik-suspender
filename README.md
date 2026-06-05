@@ -298,6 +298,60 @@ docker logs -f mikrotik-suspender
 
 ---
 
+## CLI (para técnicos)
+
+Si querés disparar una suspensión sin levantar el server, hay una CLI que habla **directo con los use cases** (no usa HTTP, no hace falta `uvicorn`).
+
+### Setup
+
+```bash
+# Mismo .env que el server — lee USER_MIKROTIK y PASS_MIKROTIK
+cp .env.example .env  # editar con tus credenciales
+
+# El bootstrap corre solo al invocar la CLI (crea data/, semilla CSV, etc.)
+```
+
+### Uso
+
+```bash
+# Ver qué se suspendería (sin tocar el router)
+python -m cli preview --mikrotik 192.168.88.1
+
+# Ejecutar la suspensión
+python -m cli run --mikrotik 192.168.88.1
+
+# Especificar fecha custom (default: hoy)
+python -m cli run --mikrotik 192.168.88.1 --date 2025-06-01
+
+# Output JSON en vez de tabla
+python -m cli preview --mikrotik 192.168.88.1 --json
+```
+
+### Ejemplo de output (`preview`)
+
+```
+ID    CURRENT           FINAL
+----  ----------------  -----------------------------------
+*1    Cliente A         Cliente A// SUSPENDIDO - 2025-06-05
+*2    Cliente B         Cliente B// SUSPENDIDO - 2025-06-05
+```
+
+### Exit codes
+
+| Code | Significado |
+|---|---|
+| `0` | OK |
+| `1` | Error (MikroTik no accesible, credenciales inválidas, etc.) |
+| `2` | Argumentos inválidos (argparse) |
+
+### Notas
+
+- La CLI **no usa el server HTTP** — no hay que tener `uvicorn` corriendo.
+- Usa la misma config que el server (`.env`), así que se autentica al MikroTik con las mismas credenciales.
+- Si activás `API_KEY` en el `.env`, la CLI **lo ignora** — la auth es solo para HTTP. La CLI se asume corrida por alguien con acceso a la máquina.
+
+---
+
 ## Bootstrap (auto-arranque)
 
 Al iniciar, la app ejecuta `bootstrap.run()` (idempotente):
