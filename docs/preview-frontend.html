@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IP Suspension Tool — Preview</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f4f5f7;--surface:#fff;--border:#dfe1e6;
+  --text:#172b4d;--text-dim:#5e6c84;
+  --primary:#0052cc;--primary-hover:#0747a6;
+  --danger:#de350b;--success:#00875a;
+  --radius:8px;--shadow:0 1px 3px rgba(9,30,66,.13);
+  --font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+}
+body{
+  font-family:var(--font);background:var(--bg);color:var(--text);
+  line-height:1.5;padding:24px;min-height:100vh;
+}
+.container{max-width:880px;margin:0 auto}
+.header{margin-bottom:24px}
+.header h1{font-size:1.5rem;font-weight:600;display:flex;align-items:center;gap:8px}
+.header p{color:var(--text-dim);font-size:.875rem;margin-top:4px}
+.card{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);box-shadow:var(--shadow);
+  padding:20px 24px;margin-bottom:16px;
+}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.card-header h2{font-size:1rem;font-weight:600;display:flex;align-items:center;gap:6px}
+.form-row{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:16px}
+.form-group{flex:1;min-width:180px}
+.form-group label{
+  display:block;font-size:.75rem;font-weight:600;text-transform:uppercase;
+  letter-spacing:.04em;color:var(--text-dim);margin-bottom:4px;
+}
+.form-group input{
+  width:100%;padding:8px 10px;border:2px solid var(--border);
+  border-radius:6px;font-size:.875rem;color:var(--text);
+  background:var(--surface);transition:border-color .15s;outline:none;
+}
+.form-group input:focus{border-color:var(--primary)}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap}
+.btn{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:8px 16px;border:none;border-radius:6px;
+  font-size:.875rem;font-weight:500;cursor:pointer;transition:background .15s;
+}
+.btn:active{transform:scale(.97)}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover{background:var(--primary-hover)}
+.btn-danger{background:var(--danger);color:#fff}
+.btn-danger:hover{background:#bf2600}
+.btn-outline{background:transparent;color:var(--text-dim);border:1px solid var(--border)}
+.btn-sm{padding:4px 10px;font-size:.8rem}
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--border)}
+th{font-weight:600;color:var(--text-dim);font-size:.75rem;text-transform:uppercase;letter-spacing:.04em}
+tr:last-child td{border-bottom:none}
+.empty-state{text-align:center;color:var(--text-dim);padding:24px 0;font-size:.875rem}
+.empty-state .icon{font-size:2rem;margin-bottom:8px}
+.option-list{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.option-tag{
+  display:inline-flex;background:var(--bg);border:1px solid var(--border);
+  border-radius:4px;padding:3px 8px;font-size:.8rem;font-family:'SF Mono','Fira Code',monospace;
+}
+.flex-between{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.mt-2{margin-top:8px}
+@media(max-width:600px){body{padding:12px}.form-group{min-width:100%}}
+.demo-banner{
+  background:#fff7e6;border:1px solid #ffd699;border-radius:6px;
+  padding:10px 14px;margin-bottom:16px;font-size:.85rem;color:#664500;
+  display:flex;align-items:center;gap:8px;
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header class="header">
+    <h1>🛡️ IP Suspension Tool</h1>
+    <p>Suspende IPs en MikroTik desde Google Sheets — MVP</p>
+  </header>
+
+  <div class="demo-banner">
+    🖌️ Vista previa del frontend — los botones no ejecutan acciones reales.
+    Abrí <strong>http://localhost:8000</strong> cuando el backend esté corriendo.
+  </div>
+
+  <!-- Config -->
+  <section class="card">
+    <div class="card-header"><h2>📋 Configuración</h2></div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="ip">IP MikroTik</label>
+        <input type="text" id="ip" placeholder="192.168.88.1" value="192.168.88.1">
+      </div>
+      <div class="form-group">
+        <label for="date">Fecha</label>
+        <input type="date" id="date" value="2026-05-13">
+      </div>
+      <div class="form-group">
+        <label for="sheet">Hoja de cálculo</label>
+        <input type="text" id="sheet" placeholder="Clientes!A1:B100" value="Clientes!A1:B100">
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary">🔍 Previsualizar</button>
+      <button class="btn btn-danger">🚀 Ejecutar</button>
+    </div>
+  </section>
+
+  <!-- Resultado simulado -->
+  <section class="card">
+    <div class="card-header"><h2>📊 Resultado</h2></div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>ID</th><th>Comentario final</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>*1</code></td><td><code>Juan Pérez// SUSPENDIDO - 2026-05-13</code></td></tr>
+          <tr><td><code>*2</code></td><td><code>María García// SUSPENDIDO - 2026-05-13</code></td></tr>
+          <tr><td><code>*3</code></td><td><code>Carlos López// SUSPENDIDO - 2026-05-13</code></td></tr>
+          <tr><td><code>*4</code></td><td><code>Ana Martínez// SUSPENDIDO - 2026-05-13</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Opciones -->
+  <section class="card">
+    <div class="card-header">
+      <h2>⚙️ Opciones guardadas</h2>
+      <button class="btn btn-outline btn-sm">↻ Recargar</button>
+    </div>
+    <div class="option-list">
+      <span class="option-tag">192.168.2.238</span>
+      <span class="option-tag">192.168.99.1</span>
+      <span class="option-tag">192.168.99.2</span>
+      <span class="option-tag">192.168.99.3</span>
+      <span class="option-tag">192.168.99.4</span>
+    </div>
+    <div class="flex-between">
+      <div class="form-group" style="margin-bottom:0;flex:1">
+        <input type="text" placeholder="Agregar IP (ej: 10.0.0.1)">
+      </div>
+      <button class="btn btn-primary btn-sm">+ Agregar</button>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,70 @@
+# ───────── Python ─────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# ───────── Virtual environments ─────────
+# Cualquier carpeta de venv (sea Unix o Windows)
+.venv/
+venv/
+env/
+ENV/
+# Restos de venv en Windows (NUNCA commitear)
+Scripts/
+Lib/
+lib/
+Include/
+include/
+share/
+pyvenv.cfg
+
+# ───────── Distribución / Build ─────────
+build/
+dist/
+*.egg-info/
+*.egg
+wheels/
+.eggs/
+
+# ───────── Testing / Coverage ─────────
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+
+# ───────── Type checking / Linting ─────────
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+dmypy.json
+
+# ───────── Secrets / Config local ─────────
+.env
+.env.*
+!.env.example
+credentials.json
+service-account*.json
+*-key.json
+
+# ───────── Editores / IDEs ─────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ───────── OS ─────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ───────── Runtime data (gitignored, .example files committed) ─────────
+data/*
+!data/.gitkeep
+!data/*.example

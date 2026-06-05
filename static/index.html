@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IP Suspension Tool</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="container">
+
+    <!-- ─── Header ──────────────────────────────────────── -->
+    <header class="header">
+      <h1>🛡️ IP Suspension Tool</h1>
+      <p>Suspende IPs en MikroTik desde CSV &mdash; MVP</p>
+    </header>
+
+    <!-- ─── Config ──────────────────────────────────────── -->
+    <section class="card">
+      <div class="card-header">
+        <h2>📋 Configuración</h2>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="ip">IP MikroTik</label>
+          <input type="text" id="ip" placeholder="192.168.88.1">
+        </div>
+        <div class="form-group">
+          <label for="date">Fecha</label>
+          <input type="date" id="date">
+        </div>
+        <div class="form-group">
+          <label for="csv-path">Ruta del CSV</label>
+          <input type="text" id="csv-path" placeholder="data/clientes.csv" value="data/clientes.csv">
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" id="btn-preview" data-label="🔍 Previsualizar">
+          <span class="btn-text">🔍 Previsualizar</span>
+          <span class="spinner" id="spinner"></span>
+        </button>
+        <button class="btn btn-danger" id="btn-exec" data-label="🚀 Ejecutar">
+          <span class="btn-text">🚀 Ejecutar</span>
+          <span class="spinner"></span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ─── Alerts ──────────────────────────────────────── -->
+    <div class="alert" id="alert">
+      <span id="alert-msg"></span>
+    </div>
+
+    <!-- ─── Result ──────────────────────────────────────── -->
+    <section class="card" id="result-card" style="display:none">
+      <div class="card-header">
+        <h2>📊 Resultado</h2>
+      </div>
+      <div id="exec-result" style="margin-bottom:12px;font-weight:600;font-size:0.9rem"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Comentario final</th>
+            </tr>
+          </thead>
+          <tbody id="result-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ─── Options ─────────────────────────────────────── -->
+    <section class="card" id="options-card">
+      <div class="card-header">
+        <h2>⚙️ Opciones guardadas</h2>
+        <button class="btn btn-outline btn-sm" id="btn-refresh-opt">↻ Recargar</button>
+      </div>
+
+      <div class="option-list" id="options-list">
+        <div class="empty-state">
+          <div class="icon">📭</div>
+          <div>Cargando…</div>
+        </div>
+      </div>
+
+      <div class="flex-between">
+        <div class="form-group" style="margin-bottom:0;flex:1">
+          <input type="text" id="option-input" placeholder="Agregar IP (ej: 10.0.0.1)">
+        </div>
+        <button class="btn btn-primary btn-sm" id="btn-add-opt" data-label="+ Agregar">
+          <span class="btn-text">+ Agregar</span>
+          <span class="spinner"></span>
+        </button>
+      </div>
+    </section>
+
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
