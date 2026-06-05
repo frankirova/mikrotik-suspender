@@ -6,17 +6,17 @@ Automatiza el bloqueo (suspensión) de direcciones IP en un **MikroTik RouterOS*
 
 ---
 
-## ⚠️ Security notice
+## ⚠️ Aviso de seguridad
 
-This tool ships **without authentication on any endpoint**. Out of the box it binds to `127.0.0.1` (loopback only) and assumes a trusted local network.
+Esta herramienta se distribuye **sin autenticación en ninguno de sus endpoints**. Por defecto escucha en `127.0.0.1` (únicamente loopback) y asume una red local de confianza.
 
-**Do not expose this service directly to the public internet** — any visitor can:
+**No expongas este servicio directamente a internet** — cualquier visitante podría:
 
-- Trigger MikroTik firewall changes (suspend / unsuspend arbitrary IPs).
-- Read and modify your stored option IPs.
-- Read and modify the local CSV.
+- Ejecutar cambios en el firewall del MikroTik (suspender / des-suspender IPs arbitrarias).
+- Leer y modificar las IPs de opciones almacenadas.
+- Leer y modificar el CSV local.
 
-If you need to expose it beyond your machine, you MUST add authentication first (API key, mTLS, or front it with an authenticating reverse proxy). The original design assumed an operator running the tool on a workstation and triggering suspensions manually.
+Si necesitas exponerlo más allá de tu máquina, DEBES agregar autenticación primero (API key, mTLS, o un reverse proxy con autenticación). El diseño original asume que un operador ejecuta la herramienta en su workstation y dispara las suspensiones de forma manual. Ver [TECHNICAL_DEBT.md](./TECHNICAL_DEBT.md) para la lista completa de mejoras planeadas.
 
 ---
 
