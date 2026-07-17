@@ -1,65 +1,105 @@
-"""Centralised configuration — loads everything from environment variables once.
-
-Eliminates the scattered load_dotenv() calls throughout the original codebase.
-"""
+"""Validated application configuration loaded from environment variables."""
 
 from __future__ import annotations
 
+import ipaddress
+import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-
 load_dotenv()
 
-
-def _required(key: str) -> str:
-    val = os.getenv(key)
-    if not val:
-        raise RuntimeError(
-            f"Missing required environment variable: {key}. "
-            f"Set it in your .env file or environment."
-        )
-    return val
+ADDRESS_LIST_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 
 def _optional(key: str, default: str = "") -> str:
     return os.getenv(key, default)
 
 
-def _expand_path(value: str) -> Path:
-    return Path(value).expanduser().resolve()
+def _required(key: str) -> str:
+    value = _optional(key)
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {key}")
+    return value
+
+
+def _bool(key: str, default: bool) -> bool:
+    value = _optional(key, str(default)).lower()
+    if value not in {"true", "false"}:
+        raise RuntimeError(f"{key} must be true or false")
+    return value == "true"
+
+
+@dataclass(frozen=True)
+class RouterTarget:
+    host: str
+    address_list: str
+    port: int | None = None
+
+
+def _routers() -> dict[str, RouterTarget]:
+    raw = _required("ROUTERS_JSON")
+    try:
+        values = json.loads(raw)
+        targets = {
+            alias: RouterTarget(
+                host=str(item["host"]),
+                address_list=str(item["address_list"]),
+                port=item.get("port"),
+            )
+            for alias, item in values.items()
+        }
+        for alias, target in targets.items():
+            if not alias or not alias.replace("-", "").replace("_", "").isalnum():
+                raise ValueError(f"invalid router alias {alias!r}")
+            ipaddress.ip_address(target.host)
+            if not ADDRESS_LIST_NAME.fullmatch(target.address_list):
+                raise ValueError(f"invalid address-list for router {alias}")
+            if target.port is not None and not 1 <= target.port <= 65535:
+                raise ValueError(f"invalid port for router {alias}")
+        return targets
+    except (TypeError, KeyError, ValueError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Invalid ROUTERS_JSON: {exc}") from exc
 
 
 @dataclass(frozen=True)
 class AppConfig:
-    # ── MikroTik ──────────────────────────────────────────────
     mikrotik_user: str = field(default_factory=lambda: _required("USER_MIKROTIK"))
     mikrotik_password: str = field(default_factory=lambda: _required("PASS_MIKROTIK"))
-
-    # ── Data (replaces Google Sheets + MongoDB) ───────────────
-    data_dir: Path = field(default_factory=lambda: _expand_path(_optional("DATA_DIR", "./data")))
-    csv_path: Path = field(default_factory=lambda: _expand_path(_optional("CSV_PATH", "./data/clientes.csv")))
-    options_db_path: Path = field(default_factory=lambda: _expand_path(_optional("OPTIONS_DB_PATH", "./data/options.db")))
-
-    # ── CORS ──────────────────────────────────────────────────
-    cors_origins: list[str] = field(default_factory=lambda: [
-        _optional("CORS_ORIGIN_1", "http://localhost:5173"),
-        _optional("CORS_ORIGIN_2", "http://localhost:8000"),
-    ])
-
-    # ── Server ────────────────────────────────────────────────
+    routers: dict[str, RouterTarget] = field(default_factory=_routers)
+    router_tls: bool = field(default_factory=lambda: _bool("ROUTER_TLS", True))
+    router_tls_verify: bool = field(default_factory=lambda: _bool("ROUTER_TLS_VERIFY", True))
+    router_timeout: float = field(default_factory=lambda: float(_optional("ROUTER_TIMEOUT", "10")))
+    data_dir: Path = field(default_factory=lambda: Path(_optional("DATA_DIR", "./data")).resolve())
+    csv_path: Path = field(
+        default_factory=lambda: Path(_optional("CSV_PATH", "./data/clientes.csv")).resolve()
+    )
+    options_db_path: Path = field(
+        default_factory=lambda: Path(_optional("OPTIONS_DB_PATH", "./data/options.db")).resolve()
+    )
+    cors_origins: list[str] = field(
+        default_factory=lambda: [_optional("CORS_ORIGIN_1", "http://localhost:8000")]
+    )
     host: str = field(default_factory=lambda: _optional("HOST", "127.0.0.1"))
     port: int = field(default_factory=lambda: int(_optional("PORT", "8000")))
-
-    # ── Authentication (optional) ─────────────────────────────
-    # When set, all sensitive endpoints require `Authorization: Bearer <api_key>`.
-    # When unset (default), authentication is disabled and a WARNING is logged
-    # at startup — intended for local development only.
     api_key: str | None = field(default_factory=lambda: _optional("API_KEY") or None)
+    max_entries: int = field(default_factory=lambda: int(_optional("MAX_ENTRIES", "1000")))
+
+    def validate_security(self) -> None:
+        if self.host not in {"127.0.0.1", "::1", "localhost"} and not self.api_key:
+            raise RuntimeError("API_KEY is required when HOST is not loopback")
+        if not self.router_tls or not self.router_tls_verify:
+            import warnings
+
+            warnings.warn(
+                "INSECURE RouterOS transport explicitly enabled",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
 
-# Single instance — import this everywhere instead of building your own.
 config = AppConfig()

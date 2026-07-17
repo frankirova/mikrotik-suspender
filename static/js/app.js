@@ -2,6 +2,7 @@
 const state = {
   loading: false,
   lastResult: null,
+  token: '',
 };
 
 /* ── DOM refs ─────────────────────────────────────────────── */
@@ -9,7 +10,8 @@ const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
 const dom = {
-  ip:         $('#ip'),
+  router:     $('#router'),
+  token:      $('#token'),
   date:       $('#date'),
   previewBtn: $('#btn-preview'),
   execBtn:    $('#btn-exec'),
@@ -51,6 +53,7 @@ function setBtnLoading(btn, loading) {
 
 async function api(method, path, body) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (state.token) opts.headers.Authorization = `Bearer ${state.token}`;
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(path, opts);
   if (res.status === 401) {
@@ -71,28 +74,46 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function renderApplyResult(result) {
+  const summary = result.summary || {};
+  const changed = summary.changed || 0;
+  const noop = summary.noop || 0;
+  const failed = summary.failed || 0;
+  const message = `Cambios: ${changed} · Sin cambios: ${noop} · Fallidos: ${failed}`;
+  dom.execResult.textContent = message;
+  dom.execResult.style.color = failed ? 'var(--danger)' : 'var(--success)';
+  showAlert(
+    failed ? `Aplicación parcial: ${message}` : `Aplicación completa: ${message}`,
+    failed ? 'error' : 'success'
+  );
+}
+
 /* ─── Preview ──────────────────────────────────────────── */
 
 async function handlePreview(execute = false) {
-  const ip   = dom.ip.value.trim();
+  const router = dom.router.value.trim();
   const date = dom.date.value || todayStr();
 
-  if (!ip) { showAlert('Ingresá la IP del MikroTik', 'error'); return; }
+  if (!router) { showAlert('Ingresá el alias del MikroTik', 'error'); return; }
 
   const btn = execute ? dom.execBtn : dom.previewBtn;
   setBtnLoading(btn, true);
 
   try {
-    const endpoint = execute ? '/script' : '/preview';
-    const result = await api('POST', endpoint, {
-      IP_MIKROTIK: ip,
-      DATE: date,
-    });
+    state.token = dom.token.value;
+    let result;
+    if (execute) {
+      if (!state.lastResult || state.lastResult.router !== router || state.lastResult.date !== date) {
+        throw new Error('Creá un plan para este router y fecha antes de aplicar');
+      }
+      if (!window.confirm(`Aplicar el plan ${state.lastResult.plan_id} en ${router}?`)) return;
+      result = await api('POST', '/apply', {router, plan_id: state.lastResult.plan_id, confirmed: true});
+    } else {
+      result = await api('POST', '/plan', {router, date});
+    }
 
     if (execute) {
-      dom.execResult.textContent = '✅ ' + (result.message || 'Ejecutado correctamente');
-      dom.execResult.style.color = 'var(--success)';
-      showAlert('Suspensión ejecutada con éxito', 'success');
+      renderApplyResult(result);
       return;
     }
 
@@ -100,7 +121,7 @@ async function handlePreview(execute = false) {
     state.lastResult = result;
     renderPreview(result);
     dom.resultCard.style.display = 'block';
-    showAlert(`Se encontraron ${result[0]?.length || 0} IPs para suspender`, 'info');
+    showAlert(`El plan contiene ${result.actions?.length || 0} acciones`, 'info');
   } catch (err) {
     showAlert(`Error: ${err.message}`, 'error');
   } finally {
@@ -108,19 +129,19 @@ async function handlePreview(execute = false) {
   }
 }
 
-function renderPreview([currentComments, finalComments]) {
+function renderPreview(plan) {
   const tbody = dom.resultBody;
+  const actions = plan.actions || [];
 
-  if (!currentComments || currentComments.length === 0) {
+  if (actions.length === 0) {
     tbody.innerHTML = `<tr><td colspan="3" class="empty-state">No hay IPs para suspender</td></tr>`;
     return;
   }
 
-  tbody.innerHTML = currentComments.map((curr, i) => {
-    const final = finalComments[i] || {};
+  tbody.innerHTML = actions.map((action) => {
     return `<tr>
-      <td><code>${escHtml(curr.id)}</code></td>
-      <td><code>${escHtml(final.comment || curr.comment)}</code></td>
+      <td><code>${escHtml(action.kind)}</code></td>
+      <td><code>${escHtml(action.address)}: ${escHtml(action.comment)}</code></td>
     </tr>`;
   }).join('');
 }
@@ -186,7 +207,7 @@ function init() {
   dom.refreshOptBtn.addEventListener('click', loadOptions);
 
   // Enter en inputs
-  dom.ip.addEventListener('keydown', (e) => {
+  dom.router.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') handlePreview(false);
   });
   dom.optionInput.addEventListener('keydown', (e) => {

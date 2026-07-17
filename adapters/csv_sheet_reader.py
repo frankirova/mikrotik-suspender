@@ -4,14 +4,16 @@ The CSV must have a header row with `ip` and `nombre` columns. The file is
 re-read only when its mtime changes, so repeated API calls don't pay the
 parse cost.
 """
+
 from __future__ import annotations
 
 import csv
+import ipaddress
 import logging
 from pathlib import Path
 
-from core.models import SheetEntry
 from core.interfaces import SheetReader
+from core.models import SheetEntry
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,7 @@ class CSVSheetReader(SheetReader):
 
     def __init__(self, csv_path: Path | None = None) -> None:
         from core.config import config
+
         self._csv_path: Path = csv_path or config.csv_path
         self._cached_mtime: float = 0.0
         self._cached_entries: list[SheetEntry] = []
@@ -55,11 +58,25 @@ class CSVSheetReader(SheetReader):
             missing = [h for h in REQUIRED_HEADERS if h not in reader.fieldnames]
             if missing:
                 raise ValueError(
-                    f"CSV {path} is missing required headers: {missing}. "
-                    f"Found: {reader.fieldnames}"
+                    f"CSV {path} is missing required headers: {missing}. Found: {reader.fieldnames}"
                 )
-            return [
-                SheetEntry(ip=row["ip"].strip(), name=row["nombre"].strip())
-                for row in reader
-                if row.get("ip") and row.get("ip", "").strip()
-            ]
+            entries: list[SheetEntry] = []
+            for line, row in enumerate(reader, start=2):
+                ip = (row.get("ip") or "").strip()
+                name = (row.get("nombre") or "").strip()
+                if not ip and not name:
+                    continue
+                if not ip:
+                    raise ValueError(f"CSV {path}, line {line}: IP is required")
+                if not name:
+                    raise ValueError(f"CSV {path}, line {line}: nombre is required")
+                try:
+                    network = (
+                        ipaddress.ip_network(ip, strict=False)
+                        if "/" in ip
+                        else ipaddress.ip_address(ip)
+                    )
+                except ValueError as exc:
+                    raise ValueError(f"CSV {path}, line {line}: invalid IP/CIDR {ip!r}") from exc
+                entries.append(SheetEntry(ip=str(network), name=name, line=line))
+            return entries

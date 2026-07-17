@@ -4,6 +4,7 @@ Schema is auto-created on first use with a `PRAGMA user_version`-style
 version table for future migrations. All writes use `INSERT OR IGNORE`,
 so adding the same IP twice is a no-op.
 """
+
 from __future__ import annotations
 
 import logging
@@ -11,8 +12,8 @@ import sqlite3
 import threading
 from pathlib import Path
 
-from core.interfaces import OptionsRepository
 from core.config import config
+from core.interfaces import OptionsRepository
 
 logger = logging.getLogger(__name__)
 

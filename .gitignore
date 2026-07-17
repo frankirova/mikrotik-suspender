@@ -41,6 +41,7 @@ coverage.xml
 # ───────── Type checking / Linting ─────────
 .mypy_cache/
 .ruff_cache/
+.codegraph/
 .dmypy.json
 dmypy.json
 

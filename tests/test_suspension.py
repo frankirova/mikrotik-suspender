@@ -1,116 +1,208 @@
-"""Unit tests for the suspension use case."""
-
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, replace
 
 import pytest
 
-from core.models import SheetEntry, AddressListEntry, SuspensionPreview
-from core.interfaces import SheetReader, MikroTikClient
-from use_cases.suspension import SuspensionUseCases
+from core.config import RouterTarget
+from core.interfaces import MikroTikClient, SheetReader
+from core.models import ActionKind, AddressListEntry, SheetEntry
+from use_cases import suspension
+from use_cases.suspension import PlanRejectedError, SuspensionUseCases
 
-
-# ── Fakes (in-memory implementations for testing) ─────────────
 
 @dataclass
-class _FakeSheetReader(SheetReader):
+class FakeSheet(SheetReader):
     entries: list[SheetEntry]
 
     async def read_entries(self) -> list[SheetEntry]:
         return self.entries
 
 
-class _FakeMikroTik(MikroTikClient):
-    def __init__(self) -> None:
-        self.address_list: dict[str, list[dict[str, Any]]] = {}
-        self.disabled_ids: list[str] = []
-        self.comment_updates: list[tuple[str, str]] = []
+class FakeRouter(MikroTikClient):
+    def __init__(self, entries: list[AddressListEntry] | None = None) -> None:
+        self.entries = list(entries or [])
+        self.calls: list[tuple] = []
+        self.closed = False
+        self.fail_address: str | None = None
 
-    async def connect(self, ip: str) -> None:
-        if "suspendido" not in self.address_list:
-            self.address_list["suspendido"] = []
+    async def connect(self, router: str) -> None:
+        self.calls.append(("connect", router))
 
     async def get_address_list(self, list_name: str) -> list[AddressListEntry]:
-        raw = self.address_list.get(list_name, [])
-        return [AddressListEntry(id=e["id"], address=e["address"], comment=e["comment"]) for e in raw]
+        self.calls.append(("get", list_name))
+        return list(self.entries)
 
     async def add_address(self, address: str, list_name: str, comment: str) -> None:
-        if list_name not in self.address_list:
-            self.address_list[list_name] = []
-        entry_id = f"id-{address}"
-        self.address_list[list_name].append({
-            "id": entry_id,
-            "address": address,
-            "comment": comment,
-        })
+        self.calls.append(("add", address, list_name))
+        if address == self.fail_address:
+            raise RuntimeError("injected failure")
+        self.entries.append(AddressListEntry(f"id-{address}", address, comment))
 
-    async def disable_entry(self, entry_id: str) -> None:
-        self.disabled_ids.append(entry_id)
+    async def enable_entry(self, entry_id: str) -> None:
+        self.calls.append(("enable", entry_id))
+        self.entries = [replace(e, disabled=False) if e.id == entry_id else e for e in self.entries]
 
     async def set_comment(self, entry_id: str, comment: str) -> None:
-        self.comment_updates.append((entry_id, comment))
+        self.calls.append(("comment", entry_id))
+        self.entries = [
+            replace(e, comment=comment) if e.id == entry_id else e for e in self.entries
+        ]
 
     async def disconnect(self) -> None:
-        pass
+        self.closed = True
+        self.calls.append(("disconnect",))
 
 
-# ── Tests ─────────────────────────────────────────────────────
-
-@pytest.fixture
-def sheets() -> _FakeSheetReader:
-    return _FakeSheetReader(entries=[
-        SheetEntry(ip="10.0.0.1", name="Cliente A"),
-        SheetEntry(ip="10.0.0.2", name="Cliente B"),
-    ])
+def uc(entries: list[SheetEntry], router: FakeRouter) -> SuspensionUseCases:
+    return SuspensionUseCases(FakeSheet(entries), router)
 
 
-@pytest.fixture
-def mikrotik() -> _FakeMikroTik:
-    mt = _FakeMikroTik()
-    mt.address_list["suspendido"] = [
-        {"id": "id-10.0.0.1", "address": "10.0.0.1", "comment": "Cliente A"},
-    ]
-    return mt
-
-
-@pytest.fixture
-def use_cases(sheets, mikrotik) -> SuspensionUseCases:
-    return SuspensionUseCases(sheets=sheets, mikrotik=mikrotik)
+@pytest.fixture(autouse=True)
+def configured_target(monkeypatch) -> None:
+    monkeypatch.setattr(
+        suspension,
+        "config",
+        replace(
+            suspension.config,
+            routers={"lab": RouterTarget("192.0.2.10", "lab-suspensions", 8729)},
+        ),
+    )
 
 
 @pytest.mark.asyncio
-async def test_preview_returns_new_and_existing_entries(use_cases):
-    result = await use_cases.preview(
-        mikrotik_ip="192.168.1.1",
-        date="2025-01-15",
-    )
-
-    assert isinstance(result, SuspensionPreview)
-
-    # 10.0.0.2 should have been added, so it appears in the list
-    matched_ips = [e.address for e in result.current_comments]
-    assert "10.0.0.1" in matched_ips
-    assert "10.0.0.2" in matched_ips
-
-    # Final comments should have the date appended
-    for entry in result.final_comments:
-        assert "// SUSPENDIDO - 2025-01-15" in entry.comment
+async def test_plan_is_strictly_read_only_and_closes_connection() -> None:
+    router = FakeRouter()
+    plan = await uc([SheetEntry("10.0.0.1", "A", 2)], router).plan("lab", "2026-07-17")
+    assert [action.kind for action in plan.actions] == [ActionKind.CREATE]
+    assert plan.address_list == "lab-suspensions"
+    assert ("get", "lab-suspensions") in router.calls
+    assert not any(call[0] in {"add", "enable", "comment"} for call in router.calls)
+    assert router.closed
 
 
 @pytest.mark.asyncio
-async def test_execute_disables_and_updates_comments(use_cases, mikrotik):
-    await use_cases.execute(
-        mikrotik_ip="192.168.1.1",
-        date="2025-01-15",
+async def test_managed_comment_is_idempotent() -> None:
+    router = FakeRouter([AddressListEntry("*1", "10.0.0.1", "A // SUSPENDIDO - 2025-01-01")])
+    use_case = uc([SheetEntry("10.0.0.1", "A", 2)], router)
+    first = await use_case.plan("lab", "2026-07-17")
+    assert first.actions[0].comment == "A // SUSPENDIDO - 2026-07-17"
+    assert (await use_case.apply(first, "lab")).failed == 0
+    second = await use_case.plan("lab", "2026-07-17")
+    assert [action.kind for action in second.actions] == [ActionKind.NOOP]
+    assert ("add", "10.0.0.1", "lab-suspensions") not in router.calls
+
+
+@pytest.mark.asyncio
+async def test_duplicate_input_rejected_with_line() -> None:
+    with pytest.raises(ValueError, match="line 3.*line 2"):
+        await uc(
+            [SheetEntry("10.0.0.1", "A", 2), SheetEntry("10.0.0.1", "B", 3)], FakeRouter()
+        ).plan("lab", "2026-07-17")
+
+
+@pytest.mark.asyncio
+async def test_empty_and_invalid_date_rejected_before_connect() -> None:
+    router = FakeRouter()
+    with pytest.raises(ValueError, match="no entries"):
+        await uc([], router).plan("lab", "2026-07-17")
+    with pytest.raises(ValueError):
+        await uc([SheetEntry("10.0.0.1", "A", 2)], router).plan("lab", "bad")
+    assert not router.calls
+
+
+@pytest.mark.asyncio
+async def test_disconnects_when_read_fails() -> None:
+    class Broken(FakeRouter):
+        async def get_address_list(self, list_name: str):
+            raise RuntimeError("boom")
+
+    router = Broken()
+    with pytest.raises(RuntimeError, match="boom"):
+        await uc([SheetEntry("10.0.0.1", "A", 2)], router).plan("lab", "2026-07-17")
+    assert router.closed
+
+
+@pytest.mark.asyncio
+async def test_partial_failure_returns_per_entry_results_and_retry_is_safe() -> None:
+    router = FakeRouter()
+    router.fail_address = "10.0.0.2"
+    use_case = uc([SheetEntry("10.0.0.1", "A", 2), SheetEntry("10.0.0.2", "B", 3)], router)
+    plan = await use_case.plan("lab", "2026-07-17")
+    result = await use_case.apply(plan, "lab")
+    assert (result.succeeded, result.failed) == (1, 1)
+    retry = await use_case.plan("lab", "2026-07-17")
+    assert {a.kind for a in retry.actions} == {ActionKind.NOOP, ActionKind.CREATE}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["tampered", "stale", "router"])
+async def test_rejects_invalid_plan(case: str) -> None:
+    router = FakeRouter()
+    use_case = uc([SheetEntry("10.0.0.1", "A", 2)], router)
+    plan = await use_case.plan("lab", "2026-07-17")
+    target = "lab"
+    if case == "tampered":
+        plan = replace(plan, date="2026-07-18")
+    elif case == "stale":
+        router.entries.append(AddressListEntry("*x", "10.0.0.9", "X"))
+    else:
+        target = "other"
+    with pytest.raises(PlanRejectedError):
+        await use_case.apply(plan, target)
+
+
+@pytest.mark.asyncio
+async def test_apply_uses_bound_address_list_for_writes_and_verification() -> None:
+    router = FakeRouter()
+    use_case = uc([SheetEntry("10.0.0.1", "A", 2)], router)
+    plan = await use_case.plan("lab", "2026-07-17")
+    router.calls.clear()
+
+    await use_case.apply(plan, "lab")
+
+    assert ("get", "lab-suspensions") in router.calls
+    assert ("add", "10.0.0.1", "lab-suspensions") in router.calls
+
+
+@pytest.mark.asyncio
+async def test_rejects_address_list_mismatch_and_tampering_before_connect(monkeypatch) -> None:
+    router = FakeRouter()
+    use_case = uc([SheetEntry("10.0.0.1", "A", 2)], router)
+    plan = await use_case.plan("lab", "2026-07-17")
+    router.calls.clear()
+
+    monkeypatch.setattr(
+        suspension,
+        "config",
+        replace(
+            suspension.config,
+            routers={"lab": RouterTarget("192.0.2.10", "other-lab-list", 8729)},
+        ),
     )
+    with pytest.raises(PlanRejectedError, match="another address-list"):
+        await use_case.apply(plan, "lab")
+    assert not router.calls
 
-    # Both entries should be disabled
-    assert len(mikrotik.disabled_ids) == 2
-    assert "id-10.0.0.1" in mikrotik.disabled_ids
-    assert "id-10.0.0.2" in mikrotik.disabled_ids
+    monkeypatch.setattr(
+        suspension,
+        "config",
+        replace(
+            suspension.config,
+            routers={"lab": RouterTarget("192.0.2.10", "tampered-list", 8729)},
+        ),
+    )
+    tampered = replace(plan, address_list="tampered-list")
+    with pytest.raises(PlanRejectedError, match="modified"):
+        await use_case.apply(tampered, "lab")
+    assert not router.calls
 
-    # Comments should be updated with date
-    for entry_id, comment in mikrotik.comment_updates:
-        assert "// SUSPENDIDO - 2025-01-15" in comment
+
+@pytest.mark.asyncio
+async def test_missing_target_configuration_fails_closed_before_connect(monkeypatch) -> None:
+    router = FakeRouter()
+    monkeypatch.setattr(suspension, "config", replace(suspension.config, routers={}))
+
+    with pytest.raises(ValueError, match="unknown router alias"):
+        await uc([SheetEntry("10.0.0.1", "A", 2)], router).plan("lab", "2026-07-17")
+    assert not router.calls

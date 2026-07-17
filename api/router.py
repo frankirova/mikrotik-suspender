@@ -1,105 +1,100 @@
-"""Thin FastAPI router — delegates everything to use cases.
-
-No business logic lives here. This is pure transport-layer glue.
-"""
+"""HTTP endpoints for validate, plan, apply and health status."""
 
 from __future__ import annotations
 
 import logging
+from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.schemas import SuspensionRequest, AddOptionRequest
-from api.dependencies import get_suspension_use_cases, get_options_use_cases
 from api.auth import verify_api_key
+from api.dependencies import get_options_use_cases, get_suspension_use_cases
+from api.schemas import AddOptionRequest, ApplyRequest, PlanRequest
 from bootstrap import DEFAULT_OPTIONS
+from core.models import SuspensionPlan
+from use_cases.suspension import PlanRejectedError
 
 logger = logging.getLogger(__name__)
-
 router = APIRouter()
+_plans: dict[str, SuspensionPlan] = {}
 
 
-# ── Suspension endpoints ──────────────────────────────────────
-
-@router.post("/preview", dependencies=[Depends(verify_api_key)])
-async def preview(body: SuspensionRequest) -> list[list[dict[str, str]]]:
-    """Preview what would happen when suspending the listed IPs.
-
-    Returns the same shape as the original API: [[comment_list], [comment_finally]].
-    Each entry has {id, comment} — matching the pre-refactor contract.
-    """
-    try:
-        uc = get_suspension_use_cases()
-        result = await uc.preview(
-            mikrotik_ip=body.IP_MIKROTIK,
-            date=body.DATE,
+def _error(exc: Exception) -> HTTPException:
+    if isinstance(exc, ValueError | PlanRejectedError):
+        return HTTPException(
+            status_code=409 if isinstance(exc, PlanRejectedError) else 422, detail=str(exc)
         )
-        return [
-            [{"id": e.id, "comment": e.comment} for e in result.current_comments],
-            [{"id": e.id, "comment": e.comment} for e in result.final_comments],
-        ]
-    except Exception:
-        logger.exception("request failed")
-        raise HTTPException(status_code=500, detail="Internal server error")
+    logger.exception("request_failed", extra={"error_type": type(exc).__name__})
+    return HTTPException(status_code=503, detail="RouterOS operation failed")
 
 
-@router.post("/script", dependencies=[Depends(verify_api_key)])
-async def script(body: SuspensionRequest) -> dict[str, str]:
-    """Execute the suspension on the MikroTik device."""
+@router.post("/validate", dependencies=[Depends(verify_api_key)])
+async def validate(body: PlanRequest) -> dict:
     try:
-        uc = get_suspension_use_cases()
-        await uc.execute(
-            mikrotik_ip=body.IP_MIKROTIK,
-            date=body.DATE,
-        )
-        return {"message": "done"}
-    except Exception:
-        logger.exception("request failed")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        plan = await get_suspension_use_cases().plan(body.router, body.date.isoformat())
+        return {"valid": True, "entries": len({a.address for a in plan.actions})}
+    except Exception as exc:
+        raise _error(exc) from exc
 
 
-# ── Options endpoints ─────────────────────────────────────────
+@router.post("/plan", dependencies=[Depends(verify_api_key)])
+async def plan(body: PlanRequest) -> dict:
+    try:
+        result = await get_suspension_use_cases().plan(body.router, body.date.isoformat())
+        _plans[result.plan_id] = result
+        return asdict(result)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/apply", dependencies=[Depends(verify_api_key)])
+async def apply(body: ApplyRequest) -> dict:
+    if not body.confirmed:
+        raise HTTPException(status_code=400, detail="explicit confirmation is required")
+    stored = _plans.get(body.plan_id)
+    if stored is None:
+        raise HTTPException(status_code=409, detail="unknown or expired plan; create a new plan")
+    try:
+        result = await get_suspension_use_cases().apply(stored, body.router)
+        _plans.pop(body.plan_id, None)
+        payload = asdict(result)
+        payload["summary"] = result.summary
+        return payload
+    except Exception as exc:
+        raise _error(exc) from exc
 
 
 @router.post("/addOptions", dependencies=[Depends(verify_api_key)])
 async def add_options() -> dict[str, str]:
-    """Insert the default IP options into the SQLite database (idempotent)."""
-    try:
-        uc = get_options_use_cases()
-        await uc.add_defaults(DEFAULT_OPTIONS)
-        return {"message": "Datos agregados correctamente"}
-    except Exception:
-        logger.exception("request failed")
-        raise HTTPException(status_code=500, detail="Internal server error")
+    await get_options_use_cases().add_defaults(DEFAULT_OPTIONS)
+    return {"message": "Options added"}
 
 
 @router.get("/readOptions", dependencies=[Depends(verify_api_key)])
 async def read_options() -> dict[str, list[str]]:
-    """Return all stored option IPs."""
-    try:
-        uc = get_options_use_cases()
-        data = await uc.list_options()
-        return {"data": data}
-    except Exception:
-        logger.exception("request failed")
-        raise HTTPException(status_code=500, detail="Internal server error")
+    return {"data": await get_options_use_cases().list_options()}
 
 
 @router.post("/addDoc", dependencies=[Depends(verify_api_key)])
 async def add_doc(body: AddOptionRequest) -> dict[str, str]:
-    """Add a single option IP."""
-    try:
-        uc = get_options_use_cases()
-        await uc.add_option(body.option)
-        return {"message": "Documento agregado correctamente"}
-    except Exception:
-        logger.exception("request failed")
-        raise HTTPException(status_code=500, detail="Internal server error")
+    await get_options_use_cases().add_option(body.option)
+    return {"message": "Option added"}
 
 
-# ── Health ────────────────────────────────────────────────────
+@router.get("/health/live")
+async def liveness() -> dict[str, str]:
+    return {"status": "alive"}
+
+
+@router.get("/health/ready")
+async def readiness() -> dict[str, str]:
+    from core.config import config
+
+    if not config.csv_path.parent.exists():
+        raise HTTPException(status_code=503, detail="data directory unavailable")
+    return {"status": "ready"}
+
 
 @router.get("/health")
 async def health() -> dict[str, str]:
-    """Lightweight health check — used by the bootstrap to confirm wiring."""
     return {"status": "ok"}

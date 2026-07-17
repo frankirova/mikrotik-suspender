@@ -1,4 +1,5 @@
 """Unit tests for the CSV sheet reader adapter."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -57,13 +58,28 @@ async def test_raises_when_required_headers_missing(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_skips_blank_ip_rows(tmp_path: Path) -> None:
     csv = tmp_path / "clientes.csv"
-    _write_csv(csv, "ip,nombre\n192.168.88.10,Alice\n,Orphan\n192.168.88.11,Bob\n")
+    _write_csv(csv, "ip,nombre\n192.168.88.10,Alice\n,\n192.168.88.11,Bob\n")
 
     reader = CSVSheetReader(csv_path=csv)
     entries = await reader.read_entries()
 
     assert len(entries) == 2
     assert [e.ip for e in entries] == ["192.168.88.10", "192.168.88.11"]
+
+
+@pytest.mark.asyncio
+async def test_invalid_ip_reports_line(tmp_path: Path) -> None:
+    csv = tmp_path / "clientes.csv"
+    _write_csv(csv, "ip,nombre\nnot-an-ip,Alice\n")
+    with pytest.raises(ValueError, match="line 2: invalid IP/CIDR"):
+        await CSVSheetReader(csv).read_entries()
+
+
+@pytest.mark.asyncio
+async def test_accepts_cidr(tmp_path: Path) -> None:
+    csv = tmp_path / "clientes.csv"
+    _write_csv(csv, "ip,nombre\n10.0.0.0/24,Network\n")
+    assert (await CSVSheetReader(csv).read_entries())[0].ip == "10.0.0.0/24"
 
 
 @pytest.mark.asyncio
@@ -96,6 +112,7 @@ async def test_mtime_cache_invalidates_on_change(tmp_path: Path) -> None:
     _write_csv(csv, "ip,nombre\n192.168.88.10,AliceRenamed\n")
     # Force a newer mtime so the cache miss is guaranteed even on coarse filesystems.
     import os
+
     new_mtime = csv.stat().st_mtime + 5
     os.utime(csv, (new_mtime, new_mtime))
 

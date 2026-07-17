@@ -1,107 +1,86 @@
-"""Entry point for the CLI — `python -m cli ...`.
+"""Safe command-line plan/apply workflow."""
 
-Parses args, runs the bootstrap, dispatches to use cases, formats output.
-"""
 from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
+import io
 import json
-import logging
 import sys
-from datetime import date as _date
+from dataclasses import asdict
+from datetime import date
 
 import bootstrap
 from api.dependencies import get_suspension_use_cases
-from use_cases.suspension import SuspensionUseCases
-
-logger = logging.getLogger(__name__)
+from core.config import config
 
 
-def _format_table(rows: list[tuple[str, str, str]]) -> str:
-    """Render 3-column rows as an aligned ASCII table."""
-    if not rows:
-        return "(no entries to suspend)"
-    headers = ("ID", "CURRENT", "FINAL")
-    widths = [max(len(headers[i]), *(len(r[i]) for r in rows)) for i in range(3)]
-    sep = "  "
-    fmt = sep.join(f"{{:<{w}}}" for w in widths)
-
-    lines = [fmt.format(*headers), fmt.format(*("-" * w for w in widths))]
-    lines.extend(fmt.format(*r) for r in rows)
-    return "\n".join(lines)
-
-
-async def _run_preview(uc: SuspensionUseCases, mikrotik_ip: str, day: str) -> int:
-    """Show what WOULD be suspended, without executing."""
-    result = await uc.preview(mikrotik_ip=mikrotik_ip, date=day)
-    rows = [
-        (e.id, e.comment, f.comment)
-        for e, f in zip(result.current_comments, result.final_comments)
-    ]
-    print(_format_table(rows))
-    return 0
-
-
-async def _run_execute(uc: SuspensionUseCases, mikrotik_ip: str, day: str) -> int:
-    """Execute the suspension on the MikroTik device."""
-    await uc.execute(mikrotik_ip=mikrotik_ip, date=day)
-    print(f"OK: suspension executed against {mikrotik_ip} for date {day}")
-    return 0
-
-
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="python -m cli",
-        description="Suspend MikroTik client IPs from CSV — CLI for technicians.",
-    )
-
-    def _add_common(sub: argparse.ArgumentParser) -> None:
-        sub.add_argument(
-            "--mikrotik", "-m",
-            required=True,
-            help="IP of the MikroTik device to connect to.",
-        )
-        sub.add_argument(
-            "--date", "-d",
-            default=_date.today().isoformat(),
-            help="Suspension date (default: today, ISO format YYYY-MM-DD).",
-        )
-        sub.add_argument(
-            "--json", "-j",
-            action="store_true",
-            help="Output as JSON instead of a table.",
-        )
-
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="mikrotik-suspender")
     sub = parser.add_subparsers(dest="command", required=True)
-
-    p_preview = sub.add_parser("preview", help="Show what would be suspended, without executing.")
-    _add_common(p_preview)
-
-    p_run = sub.add_parser("run", help="Execute the suspension on the MikroTik device.")
-    _add_common(p_run)
-
+    for command in ("plan", "apply"):
+        child = sub.add_parser(command)
+        child.add_argument("--router", required=True, choices=sorted(config.routers))
+        child.add_argument("--date", default=date.today().isoformat())
+        child.add_argument("--json", action="store_true")
+        if command == "apply":
+            child.add_argument("--yes", action="store_true", help="skip interactive confirmation")
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    parser = _build_parser()
-    args = parser.parse_args(argv)
-
-    bootstrap.run()
+async def _run(args: argparse.Namespace) -> int:
     uc = get_suspension_use_cases()
+    plan = await uc.plan(args.router, args.date)
+    if args.command == "plan":
+        print(json.dumps(asdict(plan), sort_keys=True) if args.json else _plan_text(plan))
+        return 3 if any(action.kind == "conflict" for action in plan.actions) else 0
+    if not args.yes:
+        answer = input(f"Apply plan {plan.plan_id} to router {args.router}? [y/N] ")
+        if answer.strip().lower() not in {"y", "yes"}:
+            print(json.dumps({"status": "cancelled"}) if args.json else "Cancelled")
+            return 4
+    result = await uc.apply(plan, args.router)
+    payload = asdict(result) | {"summary": result.summary}
+    print(
+        json.dumps(payload, sort_keys=True)
+        if args.json
+        else f"Applied {result.succeeded}; failed {result.failed}"
+    )
+    return 5 if result.failed else 0
 
-    coro = _run_preview if args.command == "preview" else _run_execute
 
+def _plan_text(plan) -> str:
+    lines = [
+        f"Plan: {plan.plan_id}",
+        f"Router: {plan.router}",
+        f"Address-list: {plan.address_list}",
+    ]
+    lines.extend(f"{action.kind}: {action.address} ({action.reason})" for action in plan.actions)
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    effective_argv = list(sys.argv[1:] if argv is None else argv)
+    json_output = "--json" in effective_argv
+    parser_stderr = io.StringIO()
     try:
-        code = asyncio.run(coro(uc, args.mikrotik, args.date))
-    except Exception as exc:
-        logger.exception("CLI failed")
-        print(f"ERROR: {exc}", file=sys.stderr)
+        bootstrap.run()
+        with contextlib.redirect_stderr(parser_stderr) if json_output else contextlib.nullcontext():
+            args = _parser().parse_args(effective_argv)
+        return asyncio.run(_run(args))
+    except SystemExit as exc:
+        if json_output and exc.code:
+            detail = parser_stderr.getvalue().strip().splitlines()[-1]
+            print(json.dumps({"error": detail}), file=sys.stderr)
+        return int(exc.code or 0)
+    except (ValueError, RuntimeError) as exc:
+        print(
+            json.dumps({"error": str(exc)}) if json_output else f"ERROR: {exc}",
+            file=sys.stderr,
+        )
         return 1
-    return code
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

@@ -1,4 +1,5 @@
 """Unit tests for the SQLite options repository adapter."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -60,6 +61,7 @@ async def test_schema_version_recorded_on_init(tmp_path: Path) -> None:
     repo = SQLiteOptionsRepository(path=db_path)
     try:
         import sqlite3
+
         conn = sqlite3.connect(str(db_path))
         try:
             cur = conn.execute("SELECT version FROM schema_version LIMIT 1")

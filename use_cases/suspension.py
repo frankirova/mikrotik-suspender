@@ -1,104 +1,183 @@
-"""Use cases for the IP suspension workflow.
-
-Holds the business logic that was previously scattered across
-routes.py and mikrotik.py, without any framework or transport dependency.
-"""
+"""Read-only planning and verified application of suspension plans."""
 
 from __future__ import annotations
 
-from core.models import SheetEntry, AddressListEntry, SuspensionPreview
-from core.interfaces import SheetReader, MikroTikClient
+import re
+from datetime import date as date_type
 
-SUSPEND_LIST = "suspendido"
+from core.config import config
+from core.interfaces import MikroTikClient, SheetReader
+from core.models import (
+    ActionKind,
+    ApplyResult,
+    EntryResult,
+    PlanAction,
+    SheetEntry,
+    SuspensionPlan,
+    address_list_hash,
+)
+
+MANAGED_SUFFIX = re.compile(r"\s*// SUSPENDIDO - \d{4}-\d{2}-\d{2}\s*$")
 
 
-def _build_comment_map(
-    sheet_entries: list[SheetEntry],
-    mkt_entries: list[AddressListEntry],
-    date: str,
-) -> tuple[list[AddressListEntry], list[AddressListEntry]]:
-    """Cross-reference sheet entries with MikroTik address-list entries.
+class PlanRejectedError(RuntimeError):
+    pass
 
-    Returns (matched_entries, final_comments) for all IPs found in both sources.
-    - matched_entries: entries as they currently are in MikroTik.
-    - final_comments:   same entries with the suspension date appended to their comment.
-    """
-    sheet_by_ip = {e.ip: e for e in sheet_entries}
 
-    matched: list[AddressListEntry] = []
-    for mkt in mkt_entries:
-        if mkt.address in sheet_by_ip:
-            matched.append(mkt)
-
-    final: list[AddressListEntry] = []
-    for entry in matched:
-        final.append(
-            AddressListEntry(
-                id=entry.id,
-                address=entry.address,
-                comment=f"{entry.comment}// SUSPENDIDO - {date}",
-            )
-        )
-
-    return matched, final
+def _managed_comment(name: str, day: str) -> str:
+    return f"{MANAGED_SUFFIX.sub('', name).strip()} // SUSPENDIDO - {day}"
 
 
 class SuspensionUseCases:
-    """Orchestrates the preview + execute flows."""
-
     def __init__(self, sheets: SheetReader, mikrotik: MikroTikClient) -> None:
         self._sheets = sheets
         self._mikrotik = mikrotik
 
-    async def _sync_new_entries(
-        self,
-        sheet_entries: list[SheetEntry],
-        mkt_entries: list[AddressListEntry],
-    ) -> list[AddressListEntry]:
-        """Add IPs that are in the sheet but not yet in the MikroTik list."""
-        existing_ips = {e.address for e in mkt_entries}
-        for entry in sheet_entries:
-            if entry.ip not in existing_ips:
-                await self._mikrotik.add_address(entry.ip, SUSPEND_LIST, entry.name)
-
-        # Return the refreshed list after addition
-        return await self._mikrotik.get_address_list(SUSPEND_LIST)
-
-    async def preview(
-        self,
-        mikrotik_ip: str,
-        date: str,
-    ) -> SuspensionPreview:
-        """Preview what would be suspended. Also syncs new entries (matching original behaviour)."""
+    async def plan(self, router: str, date: str) -> SuspensionPlan:
+        date_type.fromisoformat(date)
+        address_list = self._target_list(router)
         sheet_entries = await self._sheets.read_entries()
-        await self._mikrotik.connect(mikrotik_ip)
+        self._validate_entries(sheet_entries)
+        await self._mikrotik.connect(router)
+        try:
+            current = await self._mikrotik.get_address_list(address_list)
+        finally:
+            await self._mikrotik.disconnect()
 
-        current_list = await self._mikrotik.get_address_list(SUSPEND_LIST)
-        updated_list = await self._sync_new_entries(sheet_entries, current_list)
+        by_address: dict[str, list] = {}
+        for entry in current:
+            by_address.setdefault(entry.address, []).append(entry)
 
-        matched, final = _build_comment_map(sheet_entries, updated_list, date)
+        actions: list[PlanAction] = []
+        for source in sheet_entries:
+            matches = by_address.get(source.ip, [])
+            final_comment = _managed_comment(source.name, date)
+            if len(matches) > 1:
+                actions.append(
+                    PlanAction(
+                        ActionKind.CONFLICT,
+                        source.ip,
+                        None,
+                        final_comment,
+                        "duplicate RouterOS entries",
+                    )
+                )
+            elif not matches:
+                actions.append(
+                    PlanAction(
+                        ActionKind.CREATE, source.ip, None, final_comment, "address is missing"
+                    )
+                )
+            else:
+                existing = matches[0]
+                if existing.disabled:
+                    actions.append(
+                        PlanAction(
+                            ActionKind.ENABLE,
+                            source.ip,
+                            existing.id,
+                            final_comment,
+                            "entry is disabled",
+                        )
+                    )
+                if existing.comment != final_comment:
+                    actions.append(
+                        PlanAction(
+                            ActionKind.UPDATE_COMMENT,
+                            source.ip,
+                            existing.id,
+                            final_comment,
+                            "managed comment differs",
+                        )
+                    )
+                if not existing.disabled and existing.comment == final_comment:
+                    actions.append(
+                        PlanAction(
+                            ActionKind.NOOP,
+                            source.ip,
+                            existing.id,
+                            final_comment,
+                            "already reconciled",
+                        )
+                    )
+        return SuspensionPlan.create(
+            router, address_list, date, address_list_hash(current), tuple(actions)
+        )
 
-        await self._mikrotik.disconnect()
-        return SuspensionPreview(current_comments=matched, final_comments=final)
+    async def apply(self, plan: SuspensionPlan, router: str) -> ApplyResult:
+        if plan.router != router:
+            raise PlanRejectedError("plan belongs to another router")
+        address_list = self._target_list(router)
+        if plan.address_list != address_list:
+            raise PlanRejectedError("plan belongs to another address-list")
+        expected = SuspensionPlan.create(
+            plan.router, plan.address_list, plan.date, plan.snapshot_hash, plan.actions
+        )
+        if expected.plan_id != plan.plan_id:
+            raise PlanRejectedError("plan content or ID was modified")
+        if any(action.kind is ActionKind.CONFLICT for action in plan.actions):
+            raise PlanRejectedError("plan contains unresolved conflicts")
 
-    async def execute(
-        self,
-        mikrotik_ip: str,
-        date: str,
-    ) -> None:
-        """Execute the suspension: sync, disable entries, and update comments."""
-        sheet_entries = await self._sheets.read_entries()
-        await self._mikrotik.connect(mikrotik_ip)
+        await self._mikrotik.connect(router)
+        results: list[EntryResult] = []
+        try:
+            current = await self._mikrotik.get_address_list(address_list)
+            if address_list_hash(current) != plan.snapshot_hash:
+                raise PlanRejectedError("plan is stale; create a new plan")
+            for action in plan.actions:
+                try:
+                    await self._apply_action(action, address_list)
+                    await self._verify_action(action, address_list)
+                    results.append(EntryResult(action.address, action.kind, True, "verified"))
+                except Exception as exc:
+                    results.append(EntryResult(action.address, action.kind, False, str(exc)))
+        finally:
+            await self._mikrotik.disconnect()
+        return ApplyResult(plan.plan_id, tuple(results))
 
-        current_list = await self._mikrotik.get_address_list(SUSPEND_LIST)
-        updated_list = await self._sync_new_entries(sheet_entries, current_list)
+    async def _apply_action(self, action: PlanAction, address_list: str) -> None:
+        if action.kind is ActionKind.CREATE:
+            await self._mikrotik.add_address(action.address, address_list, action.comment)
+        elif action.kind is ActionKind.ENABLE:
+            await self._mikrotik.enable_entry(action.entry_id or "")
+        elif action.kind is ActionKind.UPDATE_COMMENT:
+            await self._mikrotik.set_comment(action.entry_id or "", action.comment)
 
-        matched, final = _build_comment_map(sheet_entries, updated_list, date)
+    async def _verify_action(self, action: PlanAction, address_list: str) -> None:
+        if action.kind is ActionKind.NOOP:
+            return
+        entries = await self._mikrotik.get_address_list(address_list)
+        matches = [entry for entry in entries if entry.address == action.address]
+        if len(matches) != 1:
+            raise RuntimeError("post-write verification found zero or duplicate entries")
+        entry = matches[0]
+        if (
+            action.kind in {ActionKind.CREATE, ActionKind.UPDATE_COMMENT}
+            and entry.comment != action.comment
+        ):
+            raise RuntimeError("post-write comment verification failed")
+        if action.kind is ActionKind.ENABLE and entry.disabled:
+            raise RuntimeError("post-write enabled verification failed")
 
-        for entry in matched:
-            await self._mikrotik.disable_entry(entry.id)
+    @staticmethod
+    def _target_list(router: str) -> str:
+        try:
+            return config.routers[router].address_list
+        except KeyError as exc:
+            raise ValueError(f"unknown router alias: {router}") from exc
 
-        for entry in final:
-            await self._mikrotik.set_comment(entry.id, entry.comment)
+    @staticmethod
+    def _validate_entries(entries: list[SheetEntry]) -> None:
+        if not entries:
+            raise ValueError("CSV contains no entries")
+        from core.config import config
 
-        await self._mikrotik.disconnect()
+        if len(entries) > config.max_entries:
+            raise ValueError(f"CSV exceeds MAX_ENTRIES ({config.max_entries})")
+        seen: dict[str, int] = {}
+        for entry in entries:
+            if entry.ip in seen:
+                raise ValueError(
+                    f"line {entry.line}: duplicate IP; first seen at line {seen[entry.ip]}"
+                )
+            seen[entry.ip] = entry.line

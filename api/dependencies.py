@@ -9,11 +9,11 @@ from __future__ import annotations
 from adapters.csv_sheet_reader import CSVSheetReader
 from adapters.mikrotik_adapter import RouterOSClient
 from adapters.sqlite_options_repo import SQLiteOptionsRepository
-from use_cases.suspension import SuspensionUseCases
 from use_cases.options_mgmt import OptionsUseCases
-
+from use_cases.suspension import SuspensionUseCases
 
 # ── Suspension ────────────────────────────────────────────────
+
 
 def get_suspension_use_cases() -> SuspensionUseCases:
     """Build a fully-wired SuspensionUseCases instance."""
@@ -24,6 +24,7 @@ def get_suspension_use_cases() -> SuspensionUseCases:
 
 
 # ── Options ───────────────────────────────────────────────────
+
 
 def get_options_use_cases() -> OptionsUseCases:
     """Build a fully-wired OptionsUseCases instance."""

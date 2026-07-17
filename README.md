@@ -1,517 +1,158 @@
-# IP Suspension Tool — MikroTik + CSV
+# MikroTik Suspender
 
-Automatiza el bloqueo (suspensión) de direcciones IP en un **MikroTik RouterOS** a partir de un **CSV local**. Cada vez que se ejecuta, lee los clientes del CSV, los agrega al address-list `suspendido` del router y activa el bloqueo.
+Release candidate for `v0.1.0`. It reconciles a validated CSV into one RouterOS
+address-list through an explicit, read-only plan and confirmed apply workflow.
 
-> Diseñada para automatizar la suspensión de clientes morosos en el firewall de manera masiva y sin entrar al router manualmente.
+> This software has only automated adapter-contract coverage. It has not been
+> verified against real RouterOS 6 or 7 hardware. Test in an isolated CHR lab
+> before production use.
 
----
+## Safety model
 
-## ⚠️ Aviso de seguridad
+- Router targets and their address-lists are explicit aliases from `ROUTERS_JSON`;
+  requests cannot supply either value.
+- Planning reads RouterOS and never calls add/set operations.
+- Plans are immutable and content-addressed. Apply rejects modified plans,
+  another router, changed RouterOS state, unknown plans and unconfirmed requests.
+- TLS with certificate and hostname verification is the default. Plaintext or
+  unverified TLS requires explicit configuration and emits a critical warning.
+- Every write is read back. Results are per action, so a partial failure can be
+  safely reconciled by creating a fresh plan.
+- Managed comments have one deterministic suffix and never accumulate dates.
+- Binding beyond loopback without `API_KEY` fails at application startup.
 
-Por defecto escucha en `127.0.0.1` (únicamente loopback) y asume una red local de confianza. **Soportá autenticación opcional vía Bearer token** (ver [Authentication](#authentication) abajo), pero la deja **desactivada** para no romper el dev local.
+An address-list does not block traffic by itself. RouterOS must have a firewall
+rule that consumes the configured `src-address-list` or `dst-address-list`.
+The correct chain and direction depend on your network; this tool does not create
+that rule.
 
-**No expongas este servicio directamente a internet sin activar la auth** — cualquier visitante podría:
+## Install
 
-- Ejecutar cambios en el firewall del MikroTik (suspender / des-suspender IPs arbitrarias).
-- Leer y modificar las IPs de opciones almacenadas.
-- Leer y modificar el CSV local.
-
-Activá `API_KEY` en tu `.env` antes de exponer el servicio más allá de tu workstation. Para escenarios de producción más estrictos considerá también un reverse proxy con TLS. El diseño original asume que un operador ejecuta la herramienta en su máquina y dispara las suspensiones de forma manual. Ver [TECHNICAL_DEBT.md](./TECHNICAL_DEBT.md) para la lista completa de mejoras planeadas.
-
----
-
-## Quick path
-
-```bash
-# 1. Preparar entorno
-cp .env.example .env   # y completar credenciales del MikroTik
-pip install -r requirements.txt
-
-# 2. (Opcional) editar la lista de clientes
-#    Al primer arranque se crea data/clientes.csv.example automáticamente.
-#    Editá data/clientes.csv con tus IPs y nombres (columnas: ip, nombre).
-
-# 3. Iniciar servidor — el bootstrap crea data/, copia el CSV de ejemplo,
-#    inicializa la DB SQLite y siembra las opciones por defecto.
-uvicorn main:api --reload
-
-# 4. Probar
-curl http://127.0.0.1:8000/health
-curl http://127.0.0.1:8000/readOptions
-```
-
----
-
-## Cómo funciona
-
-```
-┌────────────┐    ┌──────────────┐    ┌──────────────────┐
-│  Frontend  │───▶│  FastAPI     │───▶│  CSV local       │
-│  (vanilla) │    │  (Python)    │    │  (clientes + IPs) │
-└────────────┘    │              │    └──────────────────┘
-                  │              │
-                  │              │    ┌──────────────────┐
-                  │              │───▶│  MikroTik        │
-                  │              │    │  (address-list   │
-                  │              │    │   'suspendido')  │
-                  │              │    └──────────────────┘
-                  │              │
-                  │              │    ┌──────────────────┐
-                  │              │───▶│  SQLite          │
-                  │              │    │  (option IPs)    │
-                  └──────────────┘    └──────────────────┘
-```
-
-### Flujo de suspensión (endpoints `/preview` y `/script`)
-
-1. **Leer CSV** — se lee `data/clientes.csv` y se obtienen los pares `{ip, nombre}`.
-2. **Conectar a MikroTik** — usando IP + credenciales del `.env`.
-3. **Sincronizar** — para cada IP del CSV que aún no está en el address-list `suspendido`, la agrega con el nombre del cliente como comentario.
-4. **Cruzar datos** — busca qué entradas del address-list coinciden con IPs del CSV.
-5. **Acción**:
-   - `/preview`: devuelve qué se suspendería **sin ejecutar nada**.
-   - `/script`: **ejecuta** la suspensión — activa cada entrada (`disabled=false`) y agrega la fecha al comentario.
-
----
-
-## API Endpoints
-
-| Método | Ruta | Auth | Body | Respuesta | Qué hace |
-|--------|------|------|------|-----------|----------|
-| `POST` | `/preview` | Bearer | `{IP_MIKROTIK, DATE}` | `[[{id, comment}], [{id, comment}]]` | Muestra qué IPs se suspenderían sin ejecutar |
-| `POST` | `/script` | Bearer | `{IP_MIKROTIK, DATE}` | `{"message": "done"}` | Ejecuta la suspensión en el router |
-| `POST` | `/addOptions` | Bearer | — | `{"message": "..."}` | Inserta las IPs por defecto en la DB (idempotente) |
-| `GET` | `/readOptions` | Bearer | — | `{"data": ["ip1", "ip2"]}` | Lista las IPs guardadas |
-| `POST` | `/addDoc` | Bearer | `{"option": "x.x.x.x"}` | `{"message": "..."}` | Agrega una IP a las opciones |
-| `GET` | `/health` | — | — | `{"status": "ok"}` | Health check |
-
-### Formato de `/preview`
-
-La respuesta es una lista de **dos sublistas**:
-
-```json
-[
-  [  ← lista 0: comentarios actuales de las IPs a suspender
-    {"id": "*1", "comment": "Cliente A"},
-    {"id": "*2", "comment": "Cliente B"}
-  ],
-  [  ← lista 1: mismos elementos con fecha de suspensión agregada
-    {"id": "*1", "comment": "Cliente A// SUSPENDIDO - 2025-01-15"},
-    {"id": "*2", "comment": "Cliente B// SUSPENDIDO - 2025-01-15"}
-  ]
-]
-```
-
-### Frontend web (MVP)
-
-Apuntá el navegador a **http://127.0.0.1:8000** y tenés una interfaz lista para:
-
-- **Previsualizar** qué IPs se van a suspender (tabla con comentarios).
-- **Ejecutar** la suspensión de un solo clic.
-- **Gestionar opciones** — ver y agregar IPs a la lista de opciones guardadas.
-
-```
-mikrotik-suspender/
-└── static/
-    ├── index.html      ← Página principal
-    ├── css/style.css   ← Estilos
-    └── js/app.js       ← Lógica del frontend
-```
-
-> Tip: en `docs/preview-frontend.html` hay una vista estática del UI — abrila en el navegador para ver cómo se ve sin tener que levantar el backend.
-
-El frontend es vanilla JS sin frameworks. Se sirve desde el mismo FastAPI.
-
-### Ejemplos con curl
+Python 3.11 or newer:
 
 ```bash
-# Health check
-curl http://127.0.0.1:8000/health
-
-# Preview
-curl -X POST http://127.0.0.1:8000/preview \
-  -H "Content-Type: application/json" \
-  -d '{"IP_MIKROTIK":"192.168.88.1","DATE":"2025-06-01"}'
-
-# Ejecutar
-curl -X POST http://127.0.0.1:8000/script \
-  -H "Content-Type: application/json" \
-  -d '{"IP_MIKROTIK":"192.168.88.1","DATE":"2025-06-01"}'
-
-# Leer opciones guardadas
-curl http://127.0.0.1:8000/readOptions
+python -m venv .venv
+. .venv/bin/activate
+pip install .
 ```
 
----
+For contributors, use `pip install -e '.[dev]'`. Runtime dependencies and the
+`v0.1.0` version are canonical in `pyproject.toml`; dev tools are exact-pinned.
 
-## Authentication
-
-Los endpoints de la API (todos menos `/health`) requieren un Bearer token **si y solo si** la variable de entorno `API_KEY` está configurada. Si `API_KEY` está vacía o no está definida, la API corre **sin autenticación** y se loguea un WARNING grande al arranque.
-
-**Diseñado así** para que el dev local funcione out-of-the-box. **Activá la auth antes de exponer el servicio más allá de tu workstation**.
-
-### Setup
-
-```bash
-# 1. Generá una key segura:
-python -c "import secrets; print(secrets.token_urlsafe(32))"
-
-# 2. Pegala en tu .env:
-API_KEY=la_key_que_te_dio_el_paso_1
-
-# 3. Reiniciá el servicio. Vas a ver el WARNING desaparecer y los
-#    endpoints protegidos ahora rechazan requests sin Authorization header.
-```
-
-### Uso desde curl
-
-```bash
-# Sin auth (rechazado 401):
-curl -X POST http://127.0.0.1:8000/preview \
-  -H "Content-Type: application/json" \
-  -d '{"IP_MIKROTIK":"192.168.88.1","DATE":"2025-06-01"}'
-
-# Con auth (OK):
-curl -X POST http://127.0.0.1:8000/preview \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer la_key_que_te_dio_el_paso_1" \
-  -d '{"IP_MIKROTIK":"192.168.88.1","DATE":"2025-06-01"}'
-```
-
-### Qué endpoints se protegen
-
-| Endpoint | Auth |
-|---|---|
-| `/health` | Pública (para health checks externos) |
-| `/preview`, `/script` | Bearer (ejecuta cambios en MikroTik) |
-| `/addOptions`, `/readOptions`, `/addDoc` | Bearer (lee/modifica DB) |
-
-### Frontend web
-
-El frontend estático (`/`) **no está integrado con la auth** — está pensado para uso en dev sin auth. Si activás `API_KEY`, vas a ver un error 401 amigable en la UI explicando cómo autenticarte desde curl o un cliente HTTP. Si necesitás un frontend protegido, abrí un issue.
-
-### Comparación timing-safe
-
-La comparación del token usa `secrets.compare_digest()` (no `==`) para evitar timing attacks que podrían filtrar el token byte a byte.
-
-## Setup paso a paso
-
-### 1. MikroTik
-
-Necesitás un router MikroTik con la API habilitada (puerto 8728 por default) y un usuario con permisos para manipular `/ip/firewall/address-list`.
-
-### 2. Archivo `.env`
+## Configure
 
 ```ini
-# MikroTik
-USER_MIKROTIK=admin
-PASS_MIKROTIK=tu_password
-
-# Data (rutas, todas relativas al directorio del proyecto)
-CSV_PATH=./data/clientes.csv
-OPTIONS_DB_PATH=./data/options.db
-DATA_DIR=./data
-
-# Opcionales
+USER_MIKROTIK=suspender
+PASS_MIKROTIK=replace-me
+ROUTERS_JSON={"lab":{"host":"192.0.2.10","port":8729,"address_list":"lab-suspensions"}}
+ROUTER_TLS=true
+ROUTER_TLS_VERIFY=true
+ROUTER_TIMEOUT=10
+API_KEY=generate-a-long-random-value
 HOST=127.0.0.1
-PORT=8000
+CSV_PATH=./data/clientes.csv
+MAX_ENTRIES=1000
 ```
 
-### 3. Datos de clientes
+The RouterOS certificate must validate for the configured host. For a private CA,
+install that CA in the container/host trust store. `ROUTER_TLS=false` or
+`ROUTER_TLS_VERIFY=false` is an insecure, opt-in laboratory escape hatch.
 
-El CSV debe tener una fila de encabezado con las columnas **`ip`** y **`nombre`**, una fila por cliente:
+Use a dedicated RouterOS group/user with only API login and the minimum policy
+needed to read and modify `/ip/firewall/address-list`. Restrict the `api-ssl`
+service source address in `/ip service`; disable the plaintext `api` service when
+unused. Do not use the `admin` account.
+
+CSV format:
 
 ```csv
 ip,nombre
-192.168.88.10,Cliente A
-192.168.88.11,Cliente B
-192.168.88.12,Cliente C
+10.0.0.10,Customer A
+10.0.1.0/24,Customer network
 ```
 
-El archivo se crea automáticamente al primer arranque a partir de `data/clientes.csv.example`. Editá `data/clientes.csv` con tu lista real.
+Invalid or missing values, duplicate addresses, empty input, malformed dates and
+the configured row limit fail before RouterOS connection. Errors identify CSV
+lines.
 
-### 4. Probarlo
+Every router alias requires an `address_list` name. Names must be 1-64 characters,
+start with an alphanumeric character, and contain only alphanumerics, `_`, `-`, or
+`.`. There is deliberately no default: changing or omitting the configured list
+invalidates pending plans before RouterOS is contacted.
+
+## CLI
 
 ```bash
-pip install -r requirements.txt
-uvicorn main:api --reload
-curl http://127.0.0.1:8000/health
+mikrotik-suspender plan --router lab --date 2026-07-17 --json
+mikrotik-suspender apply --router lab --date 2026-07-17
 ```
 
----
+`apply` creates a fresh plan, displays its hash and asks for confirmation before
+applying that exact object. `--yes` is intended for already-controlled automation.
+Exit codes: `0` success, `1` validation/transport failure, `2` CLI syntax, `3`
+plan conflict, `4` cancelled, `5` partial apply failure. JSON mode writes valid
+JSON to stdout.
 
-## Docker (recomendado para dueños de WISP)
+## HTTP and web
 
-Si querés un setup "install-and-forget", la forma más simple es Docker Compose. Asume Docker Desktop (Windows/Mac) o Docker Engine (Linux) instalado.
+Protected endpoints are `POST /validate`, `POST /plan`, `POST /apply` and the
+legacy options endpoints. `/apply` accepts `{router, plan_id, confirmed}` and only
+uses plans held in this process. Restarting the process expires pending plans.
+`/health/live` proves the process responds; `/health/ready` checks initialized
+local data. Neither probe contacts RouterOS.
 
-### Setup con docker compose
+The browser UI uses the same plan/apply flow. Its bearer token exists only in
+JavaScript memory and is never written to local/session storage or static assets.
+
+## Docker
 
 ```bash
-# 1. Configurá tus credenciales
-cp .env.example .env
-# Editá .env: USER_MIKROTIK, PASS_MIKROTIK y (opcional) API_KEY
-
-# 2. Build + arrancar en background
+docker compose build
 docker compose up -d
-
-# 3. Verificar
-docker compose ps
-curl http://127.0.0.1:8000/health
-
-# 4. Abrir el panel web
-# http://127.0.0.1:8000
+curl http://127.0.0.1:8000/health/ready
 ```
 
-Los datos (CSV de clientes y DB de opciones) persisten en un **named volume** (`mikrotik_data`) — sobreviven reinicios del container.
+Compose publishes only on host loopback and the image runs as a non-root user. The
+container binds `0.0.0.0` internally, so both the image and Compose fail startup
+without `API_KEY`; host-loopback publication is defense in depth, not an auth bypass.
+If you intentionally publish externally, also terminate TLS at a trusted reverse
+proxy. Secrets remain environment/runtime concerns, never image build args.
 
-### Comandos útiles
+## Recovery and reconciliation
+
+There is no blind rollback because removing an address may conflict with another
+operator's intent. On partial failure, preserve the result report, correct the
+cause, generate a fresh plan and apply it. To reverse a suspension, review and
+change the address-list entry directly under your RouterOS change procedure, then
+re-plan. A stale plan is evidence that state changed, not an error to bypass.
+
+A RouterOS timeout is an uncertain outcome: the synchronous library call may still
+be alive in a worker thread. The process quarantines that client, skips disconnect,
+and blocks further operations on it. Do not retry blindly; let the outstanding call
+settle, inspect RouterOS state independently, then restart the process and reconcile
+with a fresh plan. This project does not claim cancellation the library cannot do.
+
+The browser apply-result formatter is intentionally small. This repository has no
+JavaScript test harness yet; Python contract tests pin the response counters and the
+UI's partial-failure branch until a browser-level harness is introduced.
+
+## Opt-in CHR laboratory
+
+Create an isolated CHR instance, configure a CA-signed `api-ssl` certificate, a
+  restricted test user, and a disposable firewall rule consuming the exact list
+  configured as the alias's `address_list` (for example, `lab-suspensions`). Point
+  a test alias at it and use documentation-only IP ranges. No automated test in
+  this repository connects to CHR or any real router.
+
+## Development
 
 ```bash
-docker compose logs -f          # seguir logs
-docker compose restart          # reiniciar
-docker compose pull && docker compose up -d --build   # actualizar tras un pull
-docker compose down             # parar (datos persisten)
-docker compose down -v          # parar y BORRAR datos (¡cuidado!)
+ruff check .
+mypy core use_cases adapters api cli
+pytest -q
+python -m build
+pip-audit
+docker build -t mikrotik-suspender:local .
 ```
 
-### Sin docker compose (técnicos)
-
-```bash
-docker build -t mikrotik-suspender .
-
-docker run -d \
-  --name mikrotik-suspender \
-  --restart unless-stopped \
-  -p 8000:8000 \
-  --env-file .env \
-  -v mikrotik_data:/app/data \
-  mikrotik-suspender
-
-docker logs -f mikrotik-suspender
-```
-
-### Notas sobre Docker
-
-- El container escucha en `0.0.0.0:8000` (ignora el `HOST=127.0.0.1` del `.env.example`, que es para uso sin Docker).
-- El healthcheck interno contra `/health` hace que `docker compose ps` muestre el estado real.
-- Si activás `API_KEY` en el `.env`, el panel web va a mostrar errores 401 (esperado — la UI es dev-only). Usá curl con `Authorization: Bearer <key>` o abrí un issue si querés una UI protegida.
-
----
-
-## CLI (para técnicos)
-
-Si querés disparar una suspensión sin levantar el server, hay una CLI que habla **directo con los use cases** (no usa HTTP, no hace falta `uvicorn`).
-
-### Setup
-
-```bash
-# Mismo .env que el server — lee USER_MIKROTIK y PASS_MIKROTIK
-cp .env.example .env  # editar con tus credenciales
-
-# El bootstrap corre solo al invocar la CLI (crea data/, semilla CSV, etc.)
-```
-
-### Uso
-
-```bash
-# Ver qué se suspendería (sin tocar el router)
-python -m cli preview --mikrotik 192.168.88.1
-
-# Ejecutar la suspensión
-python -m cli run --mikrotik 192.168.88.1
-
-# Especificar fecha custom (default: hoy)
-python -m cli run --mikrotik 192.168.88.1 --date 2025-06-01
-
-# Output JSON en vez de tabla
-python -m cli preview --mikrotik 192.168.88.1 --json
-```
-
-### Ejemplo de output (`preview`)
-
-```
-ID    CURRENT           FINAL
-----  ----------------  -----------------------------------
-*1    Cliente A         Cliente A// SUSPENDIDO - 2025-06-05
-*2    Cliente B         Cliente B// SUSPENDIDO - 2025-06-05
-```
-
-### Exit codes
-
-| Code | Significado |
-|---|---|
-| `0` | OK |
-| `1` | Error (MikroTik no accesible, credenciales inválidas, etc.) |
-| `2` | Argumentos inválidos (argparse) |
-
-### Notas
-
-- La CLI **no usa el server HTTP** — no hay que tener `uvicorn` corriendo.
-- Usa la misma config que el server (`.env`), así que se autentica al MikroTik con las mismas credenciales.
-- Si activás `API_KEY` en el `.env`, la CLI **lo ignora** — la auth es solo para HTTP. La CLI se asume corrida por alguien con acceso a la máquina.
-
----
-
-## Bootstrap (auto-arranque)
-
-Al iniciar, la app ejecuta `bootstrap.run()` (idempotente):
-
-1. Crea `data/` si no existe.
-2. Copia `data/clientes.csv.example` → `data/clientes.csv` si la runtime CSV falta.
-3. Inicializa `data/options.db` (SQLite) con la versión de schema actual.
-4. Siembra `DEFAULT_OPTIONS` en la DB si está vacía.
-
-Para empezar de cero, borrá `data/` y reiniciá.
-
----
-
-## Arquitectura (Clean Architecture)
-
-```
-mikrotik-suspender/
-├── main.py                ★ Entry point — crea la app FastAPI + lifespan
-├── bootstrap.py           ★ Setup idempotente al arranque
-│
-├── core/                  ▲ CAPA MÁS INTERNA
-│   ├── models.py          │  Datos de negocio (SheetEntry, AddressListEntry)
-│   ├── interfaces.py      │  Contratos abstractos (puertos)
-│   └── config.py          │  Config unificada desde .env
-│
-├── use_cases/             ◆ LÓGICA DE NEGOCIO
-│   ├── suspension.py      │  Preview + Execute
-│   └── options_mgmt.py    │  CRUD de opciones
-│
-├── adapters/              ▢ IMPLEMENTACIONES DE INFRAESTRUCTURA
-│   ├── csv_sheet_reader.py│  Lee clientes del CSV (con mtime cache)
-│   ├── mikrotik_adapter.py│ RouterOS
-│   └── sqlite_options_repo.py │ Persiste opciones en SQLite
-│
-├── api/                   ▣ TRANSPORTE (FastAPI)
-│   ├── router.py          │  Endpoints — solo delegan
-│   ├── schemas.py         │  Validación de requests
-│   └── dependencies.py    │  Fábricas (Composition Root)
-│
-├── data/                  ⚙ RUNTIME (gitignored, excepto *.example)
-│   ├── clientes.csv.example   ← Plantilla versionada
-│   ├── clientes.csv           ← Datos reales (gitignored)
-│   └── options.db             ← SQLite (gitignored)
-│
-└── tests/                 ⚗ TESTS con fakes en memoria
-```
-
-### Regla de dependencias
-
-```
-api → use_cases → interfaces ← adapters
-               → models
-```
-
-- `core/` no sabe que existe `api/`, `adapters/` ni `use_cases/`.
-- `use_cases/` solo conoce `core/` (interfaces y modelos).
-- `adapters/` implementa las interfaces de `core/`.
-- `api/` conecta todo usando `dependencies.py`.
-
-Esto permite **cambiar CSV por Excel** o **MikroTik por Cisco** con solo escribir un adapter nuevo — los use cases no se tocan.
-
----
-
-## Lógica en detalle
-
-### `use_cases/suspension.py` — el corazón de la app
-
-La lógica vive en `SuspensionUseCases` y tiene dos métodos públicos:
-
-```python
-async def preview(self, mikrotik_ip, date) -> SuspensionPreview
-async def execute(self, mikrotik_ip, date) -> None
-```
-
-Ambos comparten dos helpers privados:
-
-**`_sync_new_entries(sheet_entries, mkt_entries)`**
-Toma las IPs del CSV y las que ya están en MikroTik. Las que faltan las agrega al address-list `suspendido` con el nombre del cliente como comentario. Devuelve la lista actualizada.
-
-**`_build_comment_map(sheet_entries, mkt_entries, date)`**
-Cruza ambas listas: para cada IP que existe tanto en el CSV como en MikroTik, genera dos versiones del comentario:
-- La actual (tal como está en MikroTik).
-- La final (con `// SUSPENDIDO - {fecha}` concatenado).
-
-La diferencia entre `preview` y `execute`:
-- **Preview**: solo cruza datos y devuelve el resultado.
-- **Execute**: después de cruzar, llama a `disable_entry()` (activa el bloqueo) y `set_comment()` (actualiza el comentario) para cada entrada.
-
-### ¿Qué significa `disabled=false`?
-
-En RouterOS, el campo `disabled` de un address-list controla si la entrada se aplica:
-
-| Valor | Significado |
-|-------|-------------|
-| `true` / `yes` | Entrada **inactiva** — el firewall NO la considera |
-| `false` / `no` | Entrada **activa** — el firewall la aplica |
-
-El endpoint `/script` setea `disabled=false` para **activar** la suspensión de cada IP.
-
-### `adapters/csv_sheet_reader.py` — caching
-
-El reader mantiene un cache en memoria invalidado por `mtime`. La ruta del CSV se inyecta en construcción (viene de `config.csv_path` por default), así que cada instancia lee siempre del mismo archivo. Si la API recibe varios requests seguidos, el CSV no se re-parsea. Cuando el archivo cambia (mtime nuevo), se invalida y se re-lee.
-
----
-
-## Tests
-
-```bash
-pytest tests/ -v
-```
-
-Cubren tres niveles:
-
-| Tipo | Archivo | Qué prueba |
-|------|---------|-----------|
-| Use cases (con fakes) | `test_suspension.py`, `test_options.py` | Lógica de negocio sin IO real |
-| Adapter CSV | `test_csv_sheet_reader.py` | Parseo, cache por mtime, validación de headers |
-| Adapter SQLite | `test_sqlite_options_repo.py` | CRUD, idempotencia, schema version |
-
-Los tests de use cases usan **fakes en memoria** (`_FakeSheetReader`, `_FakeMikroTik`, `_FakeOptionsRepo`) que implementan los mismos ports que los adapters reales — la lógica se prueba sin conexión a internet ni credenciales.
-
----
-
-## Mantenimiento
-
-### Si agregás un nuevo servicio externo (ej. una API de cobranzas)
-
-1. Crear el **port** en `core/interfaces.py` (clase abstracta).
-2. Crear el **adapter** en `adapters/` que implemente ese port.
-3. Agregar el **use case** o extender uno existente.
-4. Conectarlo en `api/dependencies.py`.
-
-### Si cambiás la fuente de datos (CSV → algo más)
-
-Solo tocá `adapters/csv_sheet_reader.py` (o creá un nuevo adapter) — el resto del código no se entera.
-
-### Si cambiás la persistencia de opciones (SQLite → algo más)
-
-Solo tocá `adapters/sqlite_options_repo.py` — el resto del código no se entera.
-
-### Para migrar la DB SQLite a una versión nueva de schema
-
-1. Agregá el SQL de migración en una nueva función en `bootstrap.py`.
-2. Detectá la versión actual con `SELECT version FROM schema_version`.
-3. Aplicá los cambios incrementalmente.
-4. Actualizá el número de versión.
-
----
-
-## Referencia rápida
-
-| Concepto | Dónde está |
-|----------|-----------|
-| Config y secrets | `core/config.py` ← `.env` |
-| Modelos de datos | `core/models.py` |
-| Contratos abstractos | `core/interfaces.py` |
-| Lectura de clientes | `adapters/csv_sheet_reader.py` |
-| MikroTik | `adapters/mikrotik_adapter.py` |
-| Persistencia de opciones | `adapters/sqlite_options_repo.py` |
-| Bootstrap al arranque | `bootstrap.py` |
-| Lógica de suspensión | `use_cases/suspension.py` |
-| Endpoints HTTP | `api/router.py` |
-| Tests | `tests/` |
+See `SECURITY.md`, `CONTRIBUTING.md` and `CHANGELOG.md`.

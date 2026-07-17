@@ -1,143 +1,70 @@
-"""Tests for the CLI.
-
-Strategy: monkeypatch the use case factory to return a fake, then invoke
-the CLI's main() and assert on its exit code and stdout.
-"""
-from __future__ import annotations
-
-import io
 import json
-import sys
-from contextlib import redirect_stdout, redirect_stderr
-from dataclasses import dataclass
-from typing import Any
 
-import pytest
-
-from cli import __main__ as cli_main
-from core.interfaces import MikroTikClient
-from core.models import AddressListEntry, SuspensionPreview
-from use_cases.suspension import SuspensionUseCases
+from cli import __main__ as cli
+from core.models import ActionKind, ApplyResult, EntryResult, PlanAction, SuspensionPlan
 
 
-# ── Fakes ─────────────────────────────────────────────────────
+class FakeUC:
+    error = None
 
-@dataclass
-class _FakeSheetReader:
-    entries: list[Any]
-    async def read_entries(self) -> list[Any]:
-        return self.entries
+    async def plan(self, router, date):
+        if self.error:
+            raise RuntimeError(self.error)
+        return SuspensionPlan.create(
+            router,
+            "lab-suspensions",
+            date,
+            "a" * 64,
+            (PlanAction(ActionKind.NOOP, "10.0.0.1", "*1", "A", "done"),),
+        )
 
-
-class _FakeMikroTik(MikroTikClient):
-    def __init__(self) -> None:
-        self.address_list: dict[str, list[dict[str, Any]]] = {}
-        self.executed: bool = False
-        self.previewed: bool = False
-
-    async def connect(self, ip: str) -> None:
-        if "suspendido" not in self.address_list:
-            self.address_list["suspendido"] = []
-
-    async def get_address_list(self, list_name: str) -> list[AddressListEntry]:
-        return [
-            AddressListEntry(id=e["id"], address=e["address"], comment=e["comment"])
-            for e in self.address_list.get(list_name, [])
-        ]
-
-    async def add_address(self, address: str, list_name: str, comment: str) -> None:
-        self.address_list.setdefault(list_name, []).append({
-            "id": f"id-{address}",
-            "address": address,
-            "comment": comment,
-        })
-
-    async def disable_entry(self, entry_id: str) -> None:
-        pass
-
-    async def set_comment(self, entry_id: str, comment: str) -> None:
-        pass
-
-    async def disconnect(self) -> None:
-        pass
+    async def apply(self, plan, router):
+        return ApplyResult(
+            plan.plan_id, (EntryResult("10.0.0.1", ActionKind.NOOP, True, "verified"),)
+        )
 
 
-@pytest.fixture
-def fake_uc(monkeypatch):
-    """Replace the use case factory with a fake and return the bound UC."""
-    fake_mt = _FakeMikroTik()
-    fake_mt.address_list["suspendido"] = [
-        {"id": "*1", "address": "10.0.0.1", "comment": "Cliente A"},
-    ]
-    fake_sheets = _FakeSheetReader(entries=[])  # populated per test if needed
-
-    uc = SuspensionUseCases(sheets=fake_sheets, mikrotik=fake_mt)
-
-    monkeypatch.setattr(cli_main, "get_suspension_use_cases", lambda: uc)
-    monkeypatch.setattr(cli_main, "bootstrap", type("B", (), {"run": staticmethod(lambda: None)})())
-    return uc, fake_mt
+def setup(monkeypatch):
+    monkeypatch.setattr(cli, "get_suspension_use_cases", FakeUC)
+    monkeypatch.setattr(cli.bootstrap, "run", lambda: None)
 
 
-def _invoke(args: list[str]) -> tuple[int, str, str]:
-    out, err = io.StringIO(), io.StringIO()
-    with redirect_stdout(out), redirect_stderr(err):
-        try:
-            code = cli_main.main(args)
-        except SystemExit as e:
-            # argparse calls sys.exit(2) on error — translate back to a code.
-            code = e.code if isinstance(e.code, int) else 1
-    return code, out.getvalue(), err.getvalue()
+def test_json_plan_is_real_json(monkeypatch, capsys):
+    setup(monkeypatch)
+    assert cli.main(["plan", "--router", "lab", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["router"] == "lab"
 
 
-# ── Tests ─────────────────────────────────────────────────────
-
-def test_preview_table_output(fake_uc):
-    uc, _ = fake_uc
-    # Sheet has an entry that matches the MikroTik address-list entry — that's
-    # the case the preview flow needs to render a row.
-    from core.models import SheetEntry
-    uc._sheets = _FakeSheetReader(entries=[SheetEntry(ip="10.0.0.1", name="Cliente A")])  # type: ignore[attr-defined]
-    uc._mikrotik.address_list["suspendido"] = [  # type: ignore[attr-defined]
-        {"id": "*1", "address": "10.0.0.1", "comment": "Cliente A"},
-    ]
-    code, out, err = _invoke(["preview", "--mikrotik", "192.168.1.1", "--date", "2025-01-15"])
-    assert code == 0
-    assert err == ""
-    assert "ID" in out and "CURRENT" in out and "FINAL" in out
-    assert "Cliente A" in out
-    assert "SUSPENDIDO - 2025-01-15" in out
+def test_apply_requires_confirmation(monkeypatch, capsys):
+    setup(monkeypatch)
+    monkeypatch.setattr("builtins.input", lambda _: "no")
+    assert cli.main(["apply", "--router", "lab", "--json"]) == 4
+    assert json.loads(capsys.readouterr().out) == {"status": "cancelled"}
 
 
-def test_preview_empty(fake_uc):
-    code, out, _ = _invoke(["preview", "--mikrotik", "192.168.1.1"])
-    assert code == 0
-    assert "(no entries to suspend)" in out
+def test_apply_json_and_exit_code(monkeypatch, capsys):
+    setup(monkeypatch)
+    assert cli.main(["apply", "--router", "lab", "--yes", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["summary"] == {
+        "changed": 0,
+        "failed": 0,
+        "noop": 1,
+    }
 
 
-def test_preview_with_json_flag(fake_uc, monkeypatch):
-    # The current implementation prints a table. The --json flag is reserved
-    # for future machine-readable output; assert it does not error today.
-    monkeypatch.setattr(sys, "argv", ["cli"])
-    code, _, err = _invoke(["preview", "--mikrotik", "192.168.1.1", "--json"])
-    assert code == 0
-    assert err == ""
+def test_installed_entry_point_preserves_json_errors_with_implicit_argv(monkeypatch, capsys):
+    setup(monkeypatch)
+    FakeUC.error = "injected failure"
+    monkeypatch.setattr("sys.argv", ["mikrotik-suspender", "plan", "--router", "lab", "--json"])
+    try:
+        assert cli.main() == 1
+        assert json.loads(capsys.readouterr().err) == {"error": "injected failure"}
+    finally:
+        FakeUC.error = None
 
 
-def test_run_executes(fake_uc):
-    code, out, _ = _invoke(["run", "--mikrotik", "192.168.1.1", "--date", "2025-01-15"])
-    assert code == 0
-    assert "OK:" in out
-    assert "192.168.1.1" in out
-    assert "2025-01-15" in out
-
-
-def test_missing_required_mikrotik_arg(fake_uc):
-    code, _, err = _invoke(["preview"])
-    assert code == 2  # argparse's standard error exit code
-    assert "required" in err.lower() or "--mikrotik" in err
-
-
-def test_unknown_subcommand_fails(fake_uc):
-    code, _, err = _invoke(["bogus"])
-    assert code == 2
-    assert "invalid choice" in err.lower()
+def test_installed_entry_point_preserves_json_for_parser_errors(monkeypatch, capsys):
+    setup(monkeypatch)
+    monkeypatch.setattr("sys.argv", ["mikrotik-suspender", "plan", "--json"])
+    assert cli.main() == 2
+    assert "error" in json.loads(capsys.readouterr().err)

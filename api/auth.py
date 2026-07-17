@@ -9,6 +9,7 @@ application startup so it's obvious that authentication is disabled.
 
 Token comparison uses `secrets.compare_digest()` to prevent timing attacks.
 """
+
 from __future__ import annotations
 
 import secrets
@@ -20,6 +21,7 @@ from fastapi import Header, HTTPException, status
 def _get_api_key() -> str | None:
     """Read the configured key. Indirection so tests can monkeypatch it."""
     from core.config import config
+
     return config.api_key
 
 

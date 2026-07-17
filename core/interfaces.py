@@ -6,7 +6,7 @@ without committing to any specific technology or library.
 
 from abc import ABC, abstractmethod
 
-from core.models import SheetEntry, AddressListEntry
+from core.models import AddressListEntry, SheetEntry
 
 
 class SheetReader(ABC):
@@ -22,7 +22,7 @@ class MikroTikClient(ABC):
     """Port for interacting with a MikroTik RouterOS device."""
 
     @abstractmethod
-    async def connect(self, ip: str) -> None:
+    async def connect(self, router: str) -> None:
         """Open a connection to the MikroTik device."""
         ...
 
@@ -37,7 +37,7 @@ class MikroTikClient(ABC):
         ...
 
     @abstractmethod
-    async def disable_entry(self, entry_id: str) -> None:
+    async def enable_entry(self, entry_id: str) -> None:
         """Set an address-list entry as active (disabled=false in RouterOS).
 
         In MikroTik semantics: disabled=false means the entry IS applied,

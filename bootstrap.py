@@ -5,11 +5,13 @@ it is copied from the bundled `data/clientes.csv.example`. If the SQLite
 database is missing, it is created with the current schema and seeded with
 `DEFAULT_OPTIONS`.
 """
+
 from __future__ import annotations
 
 import logging
 import shutil
 import sqlite3
+import sys
 from pathlib import Path
 
 from core.config import config
@@ -17,7 +19,12 @@ from core.config import config
 logger = logging.getLogger(__name__)
 
 
-SAMPLE_CSV = Path(__file__).parent / "data" / "clientes.csv.example"
+LOCAL_SAMPLE = Path(__file__).parent / "data" / "clientes.csv.example"
+SAMPLE_CSV = (
+    LOCAL_SAMPLE
+    if LOCAL_SAMPLE.exists()
+    else Path(sys.prefix) / "share" / "mikrotik-suspender" / "data" / "clientes.csv.example"
+)
 
 
 DEFAULT_OPTIONS: list[str] = [
@@ -80,7 +87,9 @@ def ensure_db() -> None:
                 [(opt,) for opt in DEFAULT_OPTIONS],
             )
             conn.commit()
-            logger.info("Seeded %d default options into %s", len(DEFAULT_OPTIONS), config.options_db_path)
+            logger.info(
+                "Seeded %d default options into %s", len(DEFAULT_OPTIONS), config.options_db_path
+            )
     finally:
         conn.close()
 

@@ -1,4 +1,5 @@
 """Tests for API authentication (optional Bearer token via API_KEY env var)."""
+
 from __future__ import annotations
 
 import pytest
@@ -23,6 +24,7 @@ def client_with_auth(monkeypatch):
 
 # ── Auth disabled (dev mode) ──────────────────────────────────
 
+
 def test_health_accessible_without_auth(client_no_auth):
     """Health check works regardless of auth state."""
     r = client_no_auth.get("/health")
@@ -37,6 +39,7 @@ def test_protected_endpoint_works_without_header_when_disabled(client_no_auth):
 
 
 # ── Auth enabled ──────────────────────────────────────────────
+
 
 def test_health_still_public_when_auth_enabled(client_with_auth):
     """Health check must remain accessible — it's for external probes."""
@@ -88,3 +91,45 @@ def test_bearer_token_is_trimmed(client_with_auth):
         headers={"Authorization": "Bearer  test-key-123  "},
     )
     assert r.status_code == 200
+
+
+def test_non_loopback_configuration_fails_closed():
+    from dataclasses import replace
+
+    from core.config import config
+
+    with pytest.raises(RuntimeError, match="API_KEY is required"):
+        replace(config, host="0.0.0.0", api_key=None).validate_security()
+
+
+def test_frontend_keeps_token_in_memory_only():
+    from pathlib import Path
+
+    source = (Path(__file__).parents[1] / "static/js/app.js").read_text()
+    assert "Authorization" in source
+    assert "localStorage" not in source
+    assert "sessionStorage" not in source
+
+
+def test_container_bind_uses_validated_config_and_requires_api_key():
+    from pathlib import Path
+
+    root = Path(__file__).parents[1]
+    dockerfile = (root / "Dockerfile").read_text()
+    compose = (root / "docker-compose.yml").read_text()
+    server = (root / "mikrotik_suspender/server.py").read_text()
+    assert "HOST=0.0.0.0" in dockerfile
+    assert "mikrotik_suspender.server" in dockerfile
+    assert "host=config.host" in server
+    assert "config.validate_security()" in server
+    assert "API_KEY: ${API_KEY:?" in compose
+
+
+def test_frontend_reports_partial_apply_counts():
+    from pathlib import Path
+
+    source = (Path(__file__).parents[1] / "static/js/app.js").read_text()
+    assert "summary.changed" in source
+    assert "summary.noop" in source
+    assert "summary.failed" in source
+    assert "failed ? 'error' : 'success'" in source
