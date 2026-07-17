@@ -3,8 +3,13 @@ from dataclasses import replace
 
 import pytest
 
-from adapters import mikrotik_adapter
-from adapters.mikrotik_adapter import RouterOSClient, RouterOSSessionUncertainError
+from adapters.mikrotik_adapter import (
+    RouterOSClient,
+    RouterOSSessionUncertainError,
+)
+from core.config import RouterConfig, RouterTarget
+
+CONFIG = RouterConfig("user", "password", {"lab": RouterTarget("192.0.2.1", "suspended")})
 
 
 class Resource:
@@ -29,7 +34,7 @@ class API:
 
 @pytest.mark.asyncio
 async def test_contract_maps_representative_routeros_response():
-    client = RouterOSClient()
+    client = RouterOSClient(CONFIG)
     client._api = API()
     entries = await client.get_address_list("lab-suspensions")
     assert entries[0].disabled is True
@@ -38,7 +43,7 @@ async def test_contract_maps_representative_routeros_response():
 
 @pytest.mark.asyncio
 async def test_contract_writes_expected_words():
-    client = RouterOSClient()
+    client = RouterOSClient(CONFIG)
     api = API()
     client._api = api
     await client.add_address("10.0.0.2", "lab-suspensions", "B")
@@ -66,11 +71,7 @@ async def test_timeout_quarantines_session_without_concurrent_disconnect(monkeyp
         started.set()
         release.wait(timeout=1)
 
-    monkeypatch.setattr(
-        "adapters.mikrotik_adapter.config",
-        replace(mikrotik_adapter.config, router_timeout=0.01),
-    )
-    client = RouterOSClient()
+    client = RouterOSClient(replace(CONFIG, timeout=0.01))
     client._connection = Connection()
     try:
         with pytest.raises(RouterOSSessionUncertainError, match="may still be running"):

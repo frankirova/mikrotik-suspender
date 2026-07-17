@@ -25,9 +25,9 @@ class CSVSheetReader(SheetReader):
     """Reads IP → client-name mappings from a local CSV file."""
 
     def __init__(self, csv_path: Path | None = None) -> None:
-        from core.config import config
+        from core.config import AppConfig
 
-        self._csv_path: Path = csv_path or config.csv_path
+        self._csv_path: Path = csv_path or AppConfig().csv_path
         self._cached_mtime: float = 0.0
         self._cached_entries: list[SheetEntry] = []
 

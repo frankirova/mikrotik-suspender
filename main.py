@@ -3,8 +3,8 @@
 Only this file knows how everything is assembled.
 
 The app can be driven three different ways:
-  - HTTP server: uvicorn main:api --reload
-  - CLI:         python -m cli preview --mikrotik <ip>
+  - HTTP server: mikrotik-suspender-server
+  - CLI:         mikrotik-suspender plan --router <alias>
   - Docker:      docker compose up -d
 """
 
@@ -22,9 +22,10 @@ from fastapi.staticfiles import StaticFiles
 
 import bootstrap
 from api.router import router
-from core.config import config
+from core.config import AppConfig, RouterConfig
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+config = AppConfig()
 
 HERE = Path(__file__).parent
 STATIC_DIR = (
@@ -36,8 +37,10 @@ STATIC_DIR = (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    app.state.ready = False
     config.validate_security()
-    bootstrap.run()
+    app.state.router_config = RouterConfig()
+    bootstrap.run(config)
     if not config.api_key:
         logging.warning(
             "\n" + "=" * 70 + "\n"
@@ -46,7 +49,12 @@ async def lifespan(app: FastAPI):
             '    python -c "import secrets; print(secrets.token_urlsafe(32))"\n'
             "  Do NOT expose this service to the public internet without auth.\n" + "=" * 70
         )
-    yield
+    app.state.ready = True
+    try:
+        yield
+    finally:
+        app.state.ready = False
+        del app.state.router_config
 
 
 api = FastAPI(title="MikroTik Suspender", version="0.1.0", lifespan=lifespan)

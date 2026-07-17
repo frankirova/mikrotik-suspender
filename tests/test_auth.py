@@ -96,10 +96,10 @@ def test_bearer_token_is_trimmed(client_with_auth):
 def test_non_loopback_configuration_fails_closed():
     from dataclasses import replace
 
-    from core.config import config
+    from core.config import AppConfig
 
     with pytest.raises(RuntimeError, match="API_KEY is required"):
-        replace(config, host="0.0.0.0", api_key=None).validate_security()
+        replace(AppConfig(), host="0.0.0.0", api_key=None).validate_security()
 
 
 def test_frontend_keeps_token_in_memory_only():

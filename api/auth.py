@@ -20,9 +20,9 @@ from fastapi import Header, HTTPException, status
 
 def _get_api_key() -> str | None:
     """Read the configured key. Indirection so tests can monkeypatch it."""
-    from core.config import config
+    from core.config import AppConfig
 
-    return config.api_key
+    return AppConfig().api_key
 
 
 async def verify_api_key(

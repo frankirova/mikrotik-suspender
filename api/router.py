@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import asdict
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from api.auth import verify_api_key
 from api.dependencies import get_options_use_cases, get_suspension_use_cases
@@ -87,10 +87,12 @@ async def liveness() -> dict[str, str]:
 
 
 @router.get("/health/ready")
-async def readiness() -> dict[str, str]:
-    from core.config import config
+async def readiness(request: Request) -> dict[str, str]:
+    from core.config import AppConfig
 
-    if not config.csv_path.parent.exists():
+    if not getattr(request.app.state, "ready", False):
+        raise HTTPException(status_code=503, detail="RouterOS configuration unavailable")
+    if not AppConfig().csv_path.parent.exists():
         raise HTTPException(status_code=503, detail="data directory unavailable")
     return {"status": "ready"}
 

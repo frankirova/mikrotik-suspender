@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from datetime import date as date_type
 
-from core.config import config
+from core.config import RouterTarget
 from core.interfaces import MikroTikClient, SheetReader
 from core.models import (
     ActionKind,
@@ -29,9 +29,17 @@ def _managed_comment(name: str, day: str) -> str:
 
 
 class SuspensionUseCases:
-    def __init__(self, sheets: SheetReader, mikrotik: MikroTikClient) -> None:
+    def __init__(
+        self,
+        sheets: SheetReader,
+        mikrotik: MikroTikClient,
+        targets: dict[str, RouterTarget],
+        max_entries: int = 1000,
+    ) -> None:
         self._sheets = sheets
         self._mikrotik = mikrotik
+        self._targets = targets
+        self._max_entries = max_entries
 
     async def plan(self, router: str, date: str) -> SuspensionPlan:
         date_type.fromisoformat(date)
@@ -159,21 +167,17 @@ class SuspensionUseCases:
         if action.kind is ActionKind.ENABLE and entry.disabled:
             raise RuntimeError("post-write enabled verification failed")
 
-    @staticmethod
-    def _target_list(router: str) -> str:
+    def _target_list(self, router: str) -> str:
         try:
-            return config.routers[router].address_list
+            return self._targets[router].address_list
         except KeyError as exc:
             raise ValueError(f"unknown router alias: {router}") from exc
 
-    @staticmethod
-    def _validate_entries(entries: list[SheetEntry]) -> None:
+    def _validate_entries(self, entries: list[SheetEntry]) -> None:
         if not entries:
             raise ValueError("CSV contains no entries")
-        from core.config import config
-
-        if len(entries) > config.max_entries:
-            raise ValueError(f"CSV exceeds MAX_ENTRIES ({config.max_entries})")
+        if len(entries) > self._max_entries:
+            raise ValueError(f"CSV exceeds MAX_ENTRIES ({self._max_entries})")
         seen: dict[str, int] = {}
         for entry in entries:
             if entry.ip in seen:

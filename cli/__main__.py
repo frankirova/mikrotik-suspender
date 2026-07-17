@@ -13,7 +13,6 @@ from datetime import date
 
 import bootstrap
 from api.dependencies import get_suspension_use_cases
-from core.config import config
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -21,7 +20,7 @@ def _parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     for command in ("plan", "apply"):
         child = sub.add_parser(command)
-        child.add_argument("--router", required=True, choices=sorted(config.routers))
+        child.add_argument("--router", required=True)
         child.add_argument("--date", default=date.today().isoformat())
         child.add_argument("--json", action="store_true")
         if command == "apply":
@@ -65,9 +64,9 @@ def main(argv: list[str] | None = None) -> int:
     json_output = "--json" in effective_argv
     parser_stderr = io.StringIO()
     try:
-        bootstrap.run()
         with contextlib.redirect_stderr(parser_stderr) if json_output else contextlib.nullcontext():
             args = _parser().parse_args(effective_argv)
+        bootstrap.run()
         return asyncio.run(_run(args))
     except SystemExit as exc:
         if json_output and exc.code:

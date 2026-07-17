@@ -41,15 +41,18 @@ class RouterTarget:
     port: int | None = None
 
 
-def _routers() -> dict[str, RouterTarget]:
+def _routers(tls: bool | None = None) -> dict[str, RouterTarget]:
     raw = _required("ROUTERS_JSON")
+    tls = _bool("ROUTER_TLS", True) if tls is None else tls
     try:
         values = json.loads(raw)
+        if not isinstance(values, dict) or not values:
+            raise ValueError("at least one router is required")
         targets = {
             alias: RouterTarget(
                 host=str(item["host"]),
                 address_list=str(item["address_list"]),
-                port=item.get("port"),
+                port=item.get("port", 8729 if tls else 8728),
             )
             for alias, item in values.items()
         }
@@ -68,9 +71,6 @@ def _routers() -> dict[str, RouterTarget]:
 
 @dataclass(frozen=True)
 class AppConfig:
-    mikrotik_user: str = field(default_factory=lambda: _required("USER_MIKROTIK"))
-    mikrotik_password: str = field(default_factory=lambda: _required("PASS_MIKROTIK"))
-    routers: dict[str, RouterTarget] = field(default_factory=_routers)
     router_tls: bool = field(default_factory=lambda: _bool("ROUTER_TLS", True))
     router_tls_verify: bool = field(default_factory=lambda: _bool("ROUTER_TLS_VERIFY", True))
     router_timeout: float = field(default_factory=lambda: float(_optional("ROUTER_TIMEOUT", "10")))
@@ -102,4 +102,11 @@ class AppConfig:
             )
 
 
-config = AppConfig()
+@dataclass(frozen=True)
+class RouterConfig:
+    user: str = field(default_factory=lambda: _required("USER_MIKROTIK"))
+    password: str = field(default_factory=lambda: _required("PASS_MIKROTIK"))
+    routers: dict[str, RouterTarget] = field(default_factory=_routers)
+    tls: bool = field(default_factory=lambda: _bool("ROUTER_TLS", True))
+    tls_verify: bool = field(default_factory=lambda: _bool("ROUTER_TLS_VERIFY", True))
+    timeout: float = field(default_factory=lambda: float(_optional("ROUTER_TIMEOUT", "10")))

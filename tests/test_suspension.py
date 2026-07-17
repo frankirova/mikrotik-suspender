@@ -7,7 +7,6 @@ import pytest
 from core.config import RouterTarget
 from core.interfaces import MikroTikClient, SheetReader
 from core.models import ActionKind, AddressListEntry, SheetEntry
-from use_cases import suspension
 from use_cases.suspension import PlanRejectedError, SuspensionUseCases
 
 
@@ -55,18 +54,10 @@ class FakeRouter(MikroTikClient):
 
 
 def uc(entries: list[SheetEntry], router: FakeRouter) -> SuspensionUseCases:
-    return SuspensionUseCases(FakeSheet(entries), router)
-
-
-@pytest.fixture(autouse=True)
-def configured_target(monkeypatch) -> None:
-    monkeypatch.setattr(
-        suspension,
-        "config",
-        replace(
-            suspension.config,
-            routers={"lab": RouterTarget("192.0.2.10", "lab-suspensions", 8729)},
-        ),
+    return SuspensionUseCases(
+        FakeSheet(entries),
+        router,
+        {"lab": RouterTarget("192.0.2.10", "lab-suspensions", 8729)},
     )
 
 
@@ -166,43 +157,37 @@ async def test_apply_uses_bound_address_list_for_writes_and_verification() -> No
 
 
 @pytest.mark.asyncio
-async def test_rejects_address_list_mismatch_and_tampering_before_connect(monkeypatch) -> None:
+async def test_rejects_address_list_mismatch_and_tampering_before_connect() -> None:
     router = FakeRouter()
     use_case = uc([SheetEntry("10.0.0.1", "A", 2)], router)
     plan = await use_case.plan("lab", "2026-07-17")
     router.calls.clear()
 
-    monkeypatch.setattr(
-        suspension,
-        "config",
-        replace(
-            suspension.config,
-            routers={"lab": RouterTarget("192.0.2.10", "other-lab-list", 8729)},
-        ),
+    changed_config = SuspensionUseCases(
+        FakeSheet([]),
+        router,
+        {"lab": RouterTarget("192.0.2.10", "other-lab-list", 8729)},
     )
     with pytest.raises(PlanRejectedError, match="another address-list"):
-        await use_case.apply(plan, "lab")
+        await changed_config.apply(plan, "lab")
     assert not router.calls
 
-    monkeypatch.setattr(
-        suspension,
-        "config",
-        replace(
-            suspension.config,
-            routers={"lab": RouterTarget("192.0.2.10", "tampered-list", 8729)},
-        ),
+    tampered_config = SuspensionUseCases(
+        FakeSheet([]),
+        router,
+        {"lab": RouterTarget("192.0.2.10", "tampered-list", 8729)},
     )
     tampered = replace(plan, address_list="tampered-list")
     with pytest.raises(PlanRejectedError, match="modified"):
-        await use_case.apply(tampered, "lab")
+        await tampered_config.apply(tampered, "lab")
     assert not router.calls
 
 
 @pytest.mark.asyncio
-async def test_missing_target_configuration_fails_closed_before_connect(monkeypatch) -> None:
+async def test_missing_target_configuration_fails_closed_before_connect() -> None:
     router = FakeRouter()
-    monkeypatch.setattr(suspension, "config", replace(suspension.config, routers={}))
+    use_case = SuspensionUseCases(FakeSheet([SheetEntry("10.0.0.1", "A", 2)]), router, {})
 
     with pytest.raises(ValueError, match="unknown router alias"):
-        await uc([SheetEntry("10.0.0.1", "A", 2)], router).plan("lab", "2026-07-17")
+        await use_case.plan("lab", "2026-07-17")
     assert not router.calls

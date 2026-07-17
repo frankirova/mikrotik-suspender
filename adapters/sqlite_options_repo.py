@@ -12,7 +12,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
-from core.config import config
+from core.config import AppConfig
 from core.interfaces import OptionsRepository
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ class SQLiteOptionsRepository(OptionsRepository):
     """Stores option IPs in a local SQLite database with auto-migration."""
 
     def __init__(self, path: Path | None = None) -> None:
-        self._path: Path = path or config.options_db_path
+        self._path: Path = path or AppConfig().options_db_path
         self._lock = threading.Lock()
         self._conn: sqlite3.Connection | None = None
         self._ensure_schema()

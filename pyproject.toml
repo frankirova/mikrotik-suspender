@@ -31,6 +31,7 @@ dev = [
 
 [project.scripts]
 mikrotik-suspender = "cli.__main__:main"
+mikrotik-suspender-server = "mikrotik_suspender.server:main"
 
 [tool.setuptools]
 py-modules = ["bootstrap", "main"]

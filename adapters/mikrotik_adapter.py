@@ -9,7 +9,7 @@ from typing import Any, TypeVar
 
 import routeros_api
 
-from core.config import config
+from core.config import RouterConfig
 from core.interfaces import MikroTikClient
 from core.models import AddressListEntry
 
@@ -26,7 +26,8 @@ class RouterOSSessionUncertainError(RouterOSError):
 
 
 class RouterOSClient(MikroTikClient):
-    def __init__(self) -> None:
+    def __init__(self, config: RouterConfig) -> None:
+        self._config = config
         self._connection: routeros_api.RouterOsApiPool | None = None
         self._api: routeros_api.RouterOsApi | None = None
         self._session_uncertain = False
@@ -40,7 +41,7 @@ class RouterOSClient(MikroTikClient):
         try:
             return await asyncio.wait_for(
                 asyncio.to_thread(operation, *args, **kwargs),
-                timeout=config.router_timeout,
+                timeout=self._config.timeout,
             )
         except TimeoutError as exc:
             self._session_uncertain = True
@@ -52,21 +53,21 @@ class RouterOSClient(MikroTikClient):
 
     async def connect(self, router: str) -> None:
         try:
-            target = config.routers[router]
+            target = self._config.routers[router]
         except KeyError as exc:
             raise ValueError(f"unknown router alias: {router}") from exc
-        if not config.router_tls or not config.router_tls_verify:
+        if not self._config.tls or not self._config.tls_verify:
             logger.critical("insecure RouterOS transport enabled by explicit configuration")
         connection = await self._call(
             routeros_api.RouterOsApiPool,
             target.host,
-            username=config.mikrotik_user,
-            password=config.mikrotik_password,
+            username=self._config.user,
+            password=self._config.password,
             port=target.port,
             plaintext_login=True,
-            use_ssl=config.router_tls,
-            ssl_verify=config.router_tls_verify,
-            ssl_verify_hostname=config.router_tls_verify,
+            use_ssl=self._config.tls,
+            ssl_verify=self._config.tls_verify,
+            ssl_verify_hostname=self._config.tls_verify,
         )
         self._connection = connection
         self._api = await self._call(connection.get_api)

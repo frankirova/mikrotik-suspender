@@ -99,7 +99,8 @@ Protected endpoints are `POST /validate`, `POST /plan`, `POST /apply` and the
 legacy options endpoints. `/apply` accepts `{router, plan_id, confirmed}` and only
 uses plans held in this process. Restarting the process expires pending plans.
 `/health/live` proves the process responds; `/health/ready` checks initialized
-local data. Neither probe contacts RouterOS.
+local data and validated RouterOS configuration. Neither probe contacts RouterOS.
+Start HTTP with `mikrotik-suspender-server`; it binds the configured `HOST` and `PORT`.
 
 The browser UI uses the same plan/apply flow. Its bearer token exists only in
 JavaScript memory and is never written to local/session storage or static assets.

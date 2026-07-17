@@ -14,7 +14,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from core.config import config
+from core.config import AppConfig
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS options (
 """
 
 
-def ensure_csv_file() -> None:
+def ensure_csv_file(config: AppConfig) -> None:
     """Create the runtime CSV from the example if it doesn't exist yet."""
     config.csv_path.parent.mkdir(parents=True, exist_ok=True)
     if not config.csv_path.exists():
@@ -67,7 +67,7 @@ def ensure_csv_file() -> None:
             logger.warning("No sample CSV found — created empty file at %s", config.csv_path)
 
 
-def ensure_db() -> None:
+def ensure_db(config: AppConfig) -> None:
     """Create the SQLite DB, run migrations, and seed default options if empty."""
     config.options_db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(config.options_db_path))
@@ -94,9 +94,10 @@ def ensure_db() -> None:
         conn.close()
 
 
-def run() -> None:
+def run(config: AppConfig | None = None) -> None:
     """Run all bootstrap steps. Called once on app startup."""
+    config = config or AppConfig()
     logger.info("Bootstrapping data dir at %s", config.data_dir)
-    ensure_csv_file()
-    ensure_db()
+    ensure_csv_file(config)
+    ensure_db(config)
     logger.info("Bootstrap complete")

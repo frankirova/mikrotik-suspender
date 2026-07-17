@@ -9,6 +9,7 @@ from __future__ import annotations
 from adapters.csv_sheet_reader import CSVSheetReader
 from adapters.mikrotik_adapter import RouterOSClient
 from adapters.sqlite_options_repo import SQLiteOptionsRepository
+from core.config import AppConfig, RouterConfig
 from use_cases.options_mgmt import OptionsUseCases
 from use_cases.suspension import SuspensionUseCases
 
@@ -17,9 +18,13 @@ from use_cases.suspension import SuspensionUseCases
 
 def get_suspension_use_cases() -> SuspensionUseCases:
     """Build a fully-wired SuspensionUseCases instance."""
+    app_config = AppConfig()
+    router_config = RouterConfig()
     return SuspensionUseCases(
-        sheets=CSVSheetReader(),
-        mikrotik=RouterOSClient(),
+        sheets=CSVSheetReader(app_config.csv_path),
+        mikrotik=RouterOSClient(router_config),
+        targets=router_config.routers,
+        max_entries=app_config.max_entries,
     )
 
 
