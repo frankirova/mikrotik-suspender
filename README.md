@@ -546,3 +546,28 @@ Solo tocá `adapters/sqlite_options_repo.py` — el resto del código no se ente
 | Lógica de suspensión | `use_cases/suspension.py` |
 | Endpoints HTTP | `api/router.py` |
 | Tests | `tests/` |
+
+---
+
+## ¿Tenés un ISP?
+
+Automatizo cobranza, suspensiones y soporte **sobre el sistema que ya usás, sin
+migrar**. Esta herramienta es la parte de suspensiones, liberada como open
+source para que la pruebes y la audites.
+
+Si te sirve, si te falta algo, o si querés que conecte tu gestión, tu red y tus
+pagos: escribime, contame cómo lo hacés hoy y qué te gustaría automatizar.
+
+📧 **franciscor1905@gmail.com**
+
+Sin llamadas ni reuniones: escribís, te respondo, y si hay algo para hacer lo
+hacemos por escrito.
+
+---
+
+## Estado del proyecto
+
+`v0.1.0` — MVP usable en producción por un operador que ya tiene su MikroTik y
+su lista de clientes. Lo que falta está en [TECHNICAL_DEBT.md](./TECHNICAL_DEBT.md).
+
+Antes de exponerlo más allá de tu red local, leé el [aviso de seguridad](#️-aviso-de-seguridad).
