@@ -153,7 +153,19 @@ async function loadOptions() {
     const data = await api('GET', '/readOptions');
     renderOptions(data.data || []);
   } catch (err) {
-    showAlert(`Error al leer opciones: ${err.message}`, 'error');
+    // With API_KEY enabled the card cannot load before the operator types the
+    // token: show why instead of leaving "Cargando..." forever.
+    const needsToken = /401|token|authorization/i.test(err.message || '');
+    dom.optionsList.innerHTML = needsToken
+      ? `<div class="empty-state">
+           <div class="icon">🔒</div>
+           Ingresá el API token para ver las opciones guardadas.
+         </div>`
+      : `<div class="empty-state">
+           <div class="icon">⚠️</div>
+           No se pudieron leer las opciones: ${escHtml(err.message)}
+         </div>`;
+    if (!needsToken) showAlert(`Error al leer opciones: ${err.message}`, 'error');
   }
 }
 
@@ -204,6 +216,8 @@ function init() {
   dom.previewBtn.addEventListener('click', () => handlePreview(false));
   dom.execBtn.addEventListener('click', () => handlePreview(true));
   dom.addOptBtn.addEventListener('click', addOption);
+  // The token is entered after the page loads: reload the options once it is.
+  dom.token.addEventListener('change', loadOptions);
   dom.refreshOptBtn.addEventListener('click', loadOptions);
 
   // Enter en inputs
