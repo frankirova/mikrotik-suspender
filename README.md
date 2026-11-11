@@ -4,6 +4,10 @@ Automatiza el bloqueo (suspensión) de direcciones IP en un **MikroTik RouterOS*
 
 > Diseñada para automatizar la suspensión de clientes morosos en el firewall de manera masiva y sin entrar al router manualmente.
 
+![Demo: CSV → preview → ejecutar → address-list suspendido en Winbox](docs/demo/mikrotik-suspender-demo.gif)
+
+> Video completo (66 s, con el `print` real del router y el detalle del address-list): [mikrotik-suspender-demo.mp4](docs/demo/mikrotik-suspender-demo.mp4). Grabado sobre un MikroTik CHR real, con IPs y nombres ficticios.
+
 ---
 
 ## ⚠️ Aviso de seguridad
