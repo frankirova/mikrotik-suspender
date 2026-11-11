@@ -3,9 +3,16 @@
 Release candidate for `v0.1.0`. It reconciles a validated CSV into one RouterOS
 address-list through an explicit, read-only plan and confirmed apply workflow.
 
-> This software has only automated adapter-contract coverage. It has not been
-> verified against real RouterOS 6 or 7 hardware. Test in an isolated CHR lab
-> before production use.
+> Verified end to end against **RouterOS 7.24.6 (CHR on QEMU/KVM)**: plan,
+> confirmed apply and the resulting address-list on the device (see the demo
+> below). No claim is made for RouterOS 6 or for other boards: test in an
+> isolated CHR lab before production use.
+
+![Demo: plan is read-only, apply writes the address-list, verified in Winbox](docs/demo/mikrotik-suspender-demo.gif)
+
+> Full video (80 s, with the real `routeros` print in Winbox):
+> [mikrotik-suspender-demo.mp4](docs/demo/mikrotik-suspender-demo.mp4) — recorded on a real CHR
+> with fictional IPs and names. How to reproduce it: [tools/demo/README.md](tools/demo/README.md).
 
 ## Safety model
 
@@ -157,3 +164,19 @@ docker build -t mikrotik-suspender:local .
 ```
 
 See `SECURITY.md`, `CONTRIBUTING.md` and `CHANGELOG.md`.
+
+---
+
+## ¿Tenés un ISP?
+
+Automatizo cobranza, suspensiones y soporte **sobre el sistema que ya usás, sin
+migrar**. Esta herramienta es la parte de suspensiones, liberada como open source
+para que la pruebes y la audites.
+
+Si te sirve, si te falta algo, o si querés que conecte tu gestión, tu red y tus
+pagos: escribime y contame cómo lo hacés hoy.
+
+📧 **franciscor1905@gmail.com**
+
+Sin llamadas ni reuniones: escribís, te respondo, y si hay algo para hacer lo
+hacemos por escrito.

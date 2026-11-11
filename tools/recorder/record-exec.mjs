@@ -1,19 +1,14 @@
-// Records the "execute" take: fresh page, type the router IP, hit Ejecutar.
-//
-//   APP_URL=http://127.0.0.1:8002/ ROUTER_IP=172.19.0.97 node record-exec.mjs
-
 import { chromium } from 'playwright';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const rawDir = resolve(here, '../demo/raw');
 const APP = process.env.APP_URL ?? 'http://127.0.0.1:8002/';
-const ROUTER_IP = process.env.ROUTER_IP ?? '172.19.0.97';
-const DATE = process.env.SUSPENSION_DATE ?? '2025-11-10';
-
-mkdirSync(rawDir, { recursive: true });
+const ALIAS = process.env.ROUTER_ALIAS ?? 'lab';
+const TOKEN = process.env.API_TOKEN ?? 'demo-token-123';
+const DATE = process.env.SUSPENSION_DATE ?? '2025-11-11';
 
 const CURSOR_SCRIPT = () => {
   const mount = () => {
@@ -39,6 +34,9 @@ const CURSOR_SCRIPT = () => {
   else mount();
 };
 
+
+mkdirSync(rawDir, { recursive: true });
+
 const browser = await chromium.launch();
 const context = await browser.newContext({
   viewport: { width: 1440, height: 900 },
@@ -50,6 +48,7 @@ await context.addInitScript(CURSOR_SCRIPT);
 const page = await context.newPage();
 const hold = (ms) => page.waitForTimeout(ms);
 const video = page.video();
+page.on('dialog', (dialog) => dialog.accept());
 
 async function moveTo(selector, steps = 18) {
   const box = await page.locator(selector).boundingBox();
@@ -61,32 +60,39 @@ async function moveTo(selector, steps = 18) {
 await page.goto(APP, { waitUntil: 'networkidle' });
 await hold(2000);
 
-await moveTo('#ip');
-await page.locator('#ip').click();
-await page.locator('#ip').pressSequentially(ROUTER_IP, { delay: 95 });
+await moveTo('#router');
+await page.locator('#router').click();
+await page.locator('#router').pressSequentially(ALIAS, { delay: 110 });
 await hold(800);
 
 await moveTo('#date');
 await page.locator('#date').click();
 await page.locator('#date').fill(DATE);
+await hold(1000);
+
+await moveTo('#token');
+await page.locator('#token').click();
+await page.locator('#token').pressSequentially(TOKEN, { delay: 60 });
 await hold(1200);
+
+// The apply step consumes the plan created in this session.
+await moveTo('#btn-preview');
+await page.locator('#btn-preview').click();
+await page.locator('#result-body tr').first().waitFor({ state: 'visible', timeout: 30_000 });
+await hold(1500);
 
 await moveTo('#btn-exec');
 await page.locator('#btn-exec').click();
 await page.waitForFunction(
   () => {
-    const result = document.querySelector('#exec-result');
-    const alert = document.querySelector('#alert-msg');
-    return Boolean(
-      (result && result.textContent.trim()) ||
-        (alert && /ejecutad|éxito/i.test(alert.textContent)),
-    );
+    const el = document.querySelector('#exec-result');
+    return Boolean(el && el.textContent.trim());
   },
   null,
   { timeout: 30_000 },
 );
 await page.mouse.move(700, 690, { steps: 10 });
-await hold(4500);
+await hold(5000);
 
 await context.close();
 await browser.close();
