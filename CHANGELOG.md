@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-11-10
 
 - Added immutable, content-addressed plans and explicit confirmed apply.
 - Made planning strictly read-only and guaranteed connection cleanup.
