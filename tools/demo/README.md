@@ -40,7 +40,7 @@ p = routeros_api.RouterOsApiPool('172.19.0.97', username='admin', password='', p
 a = p.get_api(); a.get_resource('/user').set(id='admin', password='demo'); p.disconnect()"
 ```
 
-The demo app then runs with `-e USER_MIKROTIK=admin -e PASS_MIKROTIK=demo`.
+Credentials are typed in the UI per run: IP `172.19.0.97`, user `admin`, password `demo`.
 
 Winbox is a Qt app with no scripting interface, so the footage drives it on a
 virtual display with synthetic input (`tools/gui-ctl/xdo.py`, XTest):
@@ -85,7 +85,6 @@ State is in memory: restart the container to get an empty router.
 docker run -d --name mikrotik-demo \
   --network mikrotik-suspender_default --ip 172.19.0.98 \
   -p 127.0.0.1:8002:8000 \
-  -e USER_MIKROTIK=demo -e PASS_MIKROTIK=demo \
   -v mikrotik-demo-data:/app/data \
   mikrotik-suspender-mikrotik-suspender:latest
 ```
@@ -109,8 +108,8 @@ cd tools/recorder
 npm install          # once: playwright
 npx playwright install chromium
 docker restart routeros-sim   # start from an empty address-list
-APP_URL=http://127.0.0.1:8002/ CONSOLE_URL=http://127.0.0.1:8729/ \
-ROUTER_IP=172.19.0.99 SUSPENSION_DATE=2025-11-10 node record.mjs
+APP_URL=http://127.0.0.1:8002/ ROUTER_IP=172.19.0.97 \
+SUSPENSION_DATE=2025-11-10 node tools/recorder/record.mjs
 ```
 
 Output: `tools/demo/raw/*.webm` (1440×900, Playwright). The recorder paints its

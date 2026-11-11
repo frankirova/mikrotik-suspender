@@ -36,8 +36,6 @@ def _expand_path(value: str) -> Path:
 @dataclass(frozen=True)
 class AppConfig:
     # ── MikroTik ──────────────────────────────────────────────
-    mikrotik_user: str = field(default_factory=lambda: _required("USER_MIKROTIK"))
-    mikrotik_password: str = field(default_factory=lambda: _required("PASS_MIKROTIK"))
 
     # ── Address list ──────────────────────────────────────────
     # Name of the firewall address-list this tool owns. Each deployment can pick
@@ -60,10 +58,6 @@ class AppConfig:
     port: int = field(default_factory=lambda: int(_optional("PORT", "8000")))
 
     # ── Authentication (optional) ─────────────────────────────
-    # When set, all sensitive endpoints require `Authorization: Bearer <api_key>`.
-    # When unset (default), authentication is disabled and a WARNING is logged
-    # at startup — intended for local development only.
-    api_key: str | None = field(default_factory=lambda: _optional("API_KEY") or None)
 
 
 # Single instance — import this everywhere instead of building your own.

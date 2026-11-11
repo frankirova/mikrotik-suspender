@@ -11,6 +11,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const rawDir = resolve(here, '../demo/raw');
 const APP = process.env.APP_URL ?? 'http://127.0.0.1:8002/';
 const ROUTER_IP = process.env.ROUTER_IP ?? '172.19.0.97';
+const USER = process.env.ROUTER_USER ?? 'admin';
+const PASS = process.env.ROUTER_PASS ?? 'demo';
 const DATE = process.env.SUSPENSION_DATE ?? '2025-11-10';
 
 mkdirSync(rawDir, { recursive: true });
@@ -65,6 +67,16 @@ await moveTo('#ip');
 await page.locator('#ip').click();
 await page.locator('#ip').pressSequentially(ROUTER_IP, { delay: 95 });
 await hold(800);
+
+await moveTo('#user');
+await page.locator('#user').click();
+await page.locator('#user').pressSequentially(USER, { delay: 120 });
+await hold(700);
+
+await moveTo('#password');
+await page.locator('#password').click();
+await page.locator('#password').pressSequentially(PASS, { delay: 90 });
+await hold(1100);
 
 await moveTo('#date');
 await page.locator('#date').click();

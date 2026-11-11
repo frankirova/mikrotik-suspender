@@ -22,8 +22,8 @@ class MikroTikClient(ABC):
     """Port for interacting with a MikroTik RouterOS device."""
 
     @abstractmethod
-    async def connect(self, ip: str) -> None:
-        """Open a connection to the MikroTik device."""
+    async def connect(self, ip: str, user: str, password: str) -> None:
+        """Open a connection to the MikroTik device with the given credentials."""
         ...
 
     @abstractmethod

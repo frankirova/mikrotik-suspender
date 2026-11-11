@@ -37,10 +37,14 @@ async def _run_preview(
     uc: SuspensionUseCases,
     mikrotik_ip: str,
     day: str,
+    user: str,
+    password: str,
     list_name: str | None,
 ) -> int:
     """Show what WOULD be suspended, without executing."""
-    result = await uc.preview(mikrotik_ip=mikrotik_ip, date=day, list_name=list_name)
+    result = await uc.preview(
+        mikrotik_ip=mikrotik_ip, date=day, user=user, password=password, list_name=list_name
+    )
     rows = [
         (e.id, e.comment, f.comment)
         for e, f in zip(result.current_comments, result.final_comments)
@@ -54,10 +58,14 @@ async def _run_execute(
     uc: SuspensionUseCases,
     mikrotik_ip: str,
     day: str,
+    user: str,
+    password: str,
     list_name: str | None,
 ) -> int:
     """Execute the suspension on the MikroTik device."""
-    await uc.execute(mikrotik_ip=mikrotik_ip, date=day, list_name=list_name)
+    await uc.execute(
+        mikrotik_ip=mikrotik_ip, date=day, user=user, password=password, list_name=list_name
+    )
     effective = (list_name or "").strip() or config.list_name
     print(f"OK: suspension executed against {mikrotik_ip} for date {day} (address-list {effective})")
     return 0
@@ -74,6 +82,16 @@ def _build_parser() -> argparse.ArgumentParser:
             "--mikrotik", "-m",
             required=True,
             help="IP of the MikroTik device to connect to.",
+        )
+        sub.add_argument(
+            "--user", "-u",
+            required=True,
+            help="RouterOS user (the same one you use in Winbox).",
+        )
+        sub.add_argument(
+            "--password", "-p",
+            required=True,
+            help="RouterOS password. Prefer a dedicated account: it shows in the shell history.",
         )
         sub.add_argument(
             "--date", "-d",
@@ -114,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     coro = _run_preview if args.command == "preview" else _run_execute
 
     try:
-        code = asyncio.run(coro(uc, args.mikrotik, args.date, args.list_name))
+        code = asyncio.run(coro(uc, args.mikrotik, args.date, args.user, args.password, args.list_name))
     except Exception as exc:
         logger.exception("CLI failed")
         print(f"ERROR: {exc}", file=sys.stderr)

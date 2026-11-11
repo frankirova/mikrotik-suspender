@@ -35,7 +35,7 @@ class _FakeMikroTik(MikroTikClient):
         self.executed: bool = False
         self.previewed: bool = False
 
-    async def connect(self, ip: str) -> None:
+    async def connect(self, ip: str, user: str, password: str) -> None:
         if "suspendido" not in self.address_list:
             self.address_list["suspendido"] = []
 
@@ -82,6 +82,9 @@ def fake_uc(monkeypatch):
 
 
 def _invoke(args: list[str]) -> tuple[int, str, str]:
+    args = list(args)
+    if args and args[0] in {"preview", "run"} and "--user" not in args:
+        args += ["--user", "admin", "--password", "demo"]
     out, err = io.StringIO(), io.StringIO()
     with redirect_stdout(out), redirect_stderr(err):
         try:

@@ -95,12 +95,14 @@ class SuspensionUseCases:
         self,
         mikrotik_ip: str,
         date: str,
+        user: str,
+        password: str,
         list_name: str | None = None,
     ) -> SuspensionPreview:
         """Preview what would be suspended. Read-only: the router is never written."""
         name = _resolve_list_name(list_name)
         sheet_entries = await self._sheets.read_entries()
-        await self._mikrotik.connect(mikrotik_ip)
+        await self._mikrotik.connect(mikrotik_ip, user, password)
 
         current_list = await self._mikrotik.get_address_list(name)
         referenced = await self._mikrotik.get_referenced_lists()
@@ -121,12 +123,14 @@ class SuspensionUseCases:
         self,
         mikrotik_ip: str,
         date: str,
+        user: str,
+        password: str,
         list_name: str | None = None,
     ) -> None:
         """Execute the suspension: sync, disable entries, and update comments."""
         name = _resolve_list_name(list_name)
         sheet_entries = await self._sheets.read_entries()
-        await self._mikrotik.connect(mikrotik_ip)
+        await self._mikrotik.connect(mikrotik_ip, user, password)
 
         current_list = await self._mikrotik.get_address_list(name)
         updated_list = await self._sync_new_entries(sheet_entries, current_list, name)

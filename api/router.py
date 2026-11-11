@@ -11,7 +11,6 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from api.schemas import SuspensionRequest, AddOptionRequest
 from api.dependencies import get_suspension_use_cases, get_options_use_cases
-from api.auth import verify_api_key
 from core.config import config
 from bootstrap import DEFAULT_OPTIONS
 
@@ -22,7 +21,7 @@ router = APIRouter()
 
 # ── Suspension endpoints ──────────────────────────────────────
 
-@router.post("/preview", dependencies=[Depends(verify_api_key)])
+@router.post("/preview")
 async def preview(body: SuspensionRequest) -> list[list[dict[str, str]] | dict[str, object]]:
     """Preview what would happen when suspending the listed IPs.
 
@@ -35,6 +34,8 @@ async def preview(body: SuspensionRequest) -> list[list[dict[str, str]] | dict[s
         result = await uc.preview(
             mikrotik_ip=body.IP_MIKROTIK,
             date=body.DATE,
+            user=body.USER,
+            password=body.PASSWORD,
             list_name=body.LIST_NAME,
         )
         return [
@@ -51,7 +52,7 @@ async def preview(body: SuspensionRequest) -> list[list[dict[str, str]] | dict[s
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.post("/script", dependencies=[Depends(verify_api_key)])
+@router.post("/script")
 async def script(body: SuspensionRequest) -> dict[str, str]:
     """Execute the suspension on the MikroTik device."""
     try:
@@ -59,6 +60,8 @@ async def script(body: SuspensionRequest) -> dict[str, str]:
         await uc.execute(
             mikrotik_ip=body.IP_MIKROTIK,
             date=body.DATE,
+            user=body.USER,
+            password=body.PASSWORD,
             list_name=body.LIST_NAME,
         )
         return {"message": "done"}
@@ -70,7 +73,7 @@ async def script(body: SuspensionRequest) -> dict[str, str]:
 # ── Options endpoints ─────────────────────────────────────────
 
 
-@router.post("/addOptions", dependencies=[Depends(verify_api_key)])
+@router.post("/addOptions")
 async def add_options() -> dict[str, str]:
     """Insert the default IP options into the SQLite database (idempotent)."""
     try:
@@ -82,7 +85,7 @@ async def add_options() -> dict[str, str]:
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get("/readOptions", dependencies=[Depends(verify_api_key)])
+@router.get("/readOptions")
 async def read_options() -> dict[str, list[str]]:
     """Return all stored option IPs."""
     try:
@@ -94,7 +97,7 @@ async def read_options() -> dict[str, list[str]]:
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.post("/addDoc", dependencies=[Depends(verify_api_key)])
+@router.post("/addDoc")
 async def add_doc(body: AddOptionRequest) -> dict[str, str]:
     """Add a single option IP."""
     try:

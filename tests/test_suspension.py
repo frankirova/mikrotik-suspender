@@ -29,7 +29,7 @@ class _FakeMikroTik(MikroTikClient):
         self.comment_updates: list[tuple[str, str]] = []
         self.referenced_lists: set[str] = set()
 
-    async def connect(self, ip: str) -> None:
+    async def connect(self, ip: str, user: str, password: str) -> None:
         if "suspendido" not in self.address_list:
             self.address_list["suspendido"] = []
 
@@ -88,6 +88,8 @@ def use_cases(sheets, mikrotik) -> SuspensionUseCases:
 async def test_preview_returns_new_and_existing_entries(use_cases):
     result = await use_cases.preview(
         mikrotik_ip="192.168.1.1",
+        user="admin",
+        password="demo",
         date="2025-01-15",
     )
 
@@ -107,6 +109,8 @@ async def test_preview_returns_new_and_existing_entries(use_cases):
 async def test_execute_disables_and_updates_comments(use_cases, mikrotik):
     await use_cases.execute(
         mikrotik_ip="192.168.1.1",
+        user="admin",
+        password="demo",
         date="2025-01-15",
     )
 
@@ -127,6 +131,8 @@ async def test_preview_does_not_write_to_the_router(use_cases, mikrotik):
 
     result = await use_cases.preview(
         mikrotik_ip="192.168.1.1",
+        user="admin",
+        password="demo",
         date="2025-01-15",
     )
 
@@ -148,6 +154,8 @@ async def test_uses_the_given_list_name(use_cases, mikrotik):
     """The address-list name is configurable per run."""
     await use_cases.execute(
         mikrotik_ip="192.168.1.1",
+        user="admin",
+        password="demo",
         date="2025-01-15",
         list_name="morosos",
     )
@@ -164,7 +172,9 @@ async def test_list_name_defaults_to_config(use_cases, mikrotik, monkeypatch):
 
     monkeypatch.setattr("use_cases.suspension.config", SimpleNamespace(list_name="morosos"))
 
-    result = await use_cases.preview(mikrotik_ip="192.168.1.1", date="2025-01-15")
+    result = await use_cases.preview(mikrotik_ip="192.168.1.1",
+        user="admin",
+        password="demo", date="2025-01-15")
 
     assert result.list_name == "morosos"
     # "morosos" does not exist yet, so both clients are projected as pending.
@@ -174,7 +184,9 @@ async def test_list_name_defaults_to_config(use_cases, mikrotik, monkeypatch):
 @pytest.mark.asyncio
 async def test_preview_reports_an_unreferenced_list(use_cases, mikrotik):
     """The list has entries but no firewall rule matches it: warn the operator."""
-    result = await use_cases.preview(mikrotik_ip="192.168.1.1", date="2025-01-15")
+    result = await use_cases.preview(mikrotik_ip="192.168.1.1",
+        user="admin",
+        password="demo", date="2025-01-15")
 
     assert result.list_has_entries is True
     assert result.referenced_by_rules is False
@@ -184,6 +196,8 @@ async def test_preview_reports_an_unreferenced_list(use_cases, mikrotik):
 async def test_preview_reports_a_referenced_list(use_cases, mikrotik):
     mikrotik.referenced_lists = {"suspendido"}
 
-    result = await use_cases.preview(mikrotik_ip="192.168.1.1", date="2025-01-15")
+    result = await use_cases.preview(mikrotik_ip="192.168.1.1",
+        user="admin",
+        password="demo", date="2025-01-15")
 
     assert result.referenced_by_rules is True

@@ -12,7 +12,7 @@ Automatiza el bloqueo (suspensión) de direcciones IP en un **MikroTik RouterOS*
 
 ## ⚠️ Aviso de seguridad
 
-Por defecto escucha en `127.0.0.1` (únicamente loopback) y asume una red local de confianza. **Soportá autenticación opcional vía Bearer token** (ver [Authentication](#authentication) abajo), pero la deja **desactivada** para no romper el dev local.
+Por defecto escucha en `127.0.0.1` (únicamente loopback) y asume una red local de confianza. **No tiene autenticación**: está pensada para correr en tu máquina o detrás de un proxy.
 
 **No expongas este servicio directamente a internet sin activar la auth** — cualquier visitante podría:
 
@@ -20,7 +20,7 @@ Por defecto escucha en `127.0.0.1` (únicamente loopback) y asume una red local 
 - Leer y modificar las IPs de opciones almacenadas.
 - Leer y modificar el CSV local.
 
-Activá `API_KEY` en tu `.env` antes de exponer el servicio más allá de tu workstation. Para escenarios de producción más estrictos considerá también un reverse proxy con TLS. El diseño original asume que un operador ejecuta la herramienta en su máquina y dispara las suspensiones de forma manual. Ver [TECHNICAL_DEBT.md](./TECHNICAL_DEBT.md) para la lista completa de mejoras planeadas.
+No la expongas a internet. Si necesitás acceso remoto, poné un reverse proxy con TLS y autenticación adelante. El diseño original asume que un operador ejecuta la herramienta en su máquina y dispara las suspensiones de forma manual. Ver [TECHNICAL_DEBT.md](./TECHNICAL_DEBT.md) para la lista completa de mejoras planeadas.
 
 ---
 
@@ -28,7 +28,7 @@ Activá `API_KEY` en tu `.env` antes de exponer el servicio más allá de tu wor
 
 ```bash
 # 1. Preparar entorno
-cp .env.example .env   # y completar credenciales del MikroTik
+cp .env.example .env   # opcional: rutas, host y puerto
 pip install -r requirements.txt
 
 # 2. (Opcional) editar la lista de clientes
@@ -69,7 +69,7 @@ curl http://127.0.0.1:8000/readOptions
 ### Flujo de suspensión (endpoints `/preview` y `/script`)
 
 1. **Leer CSV** — se lee `data/clientes.csv` y se obtienen los pares `{ip, nombre}`.
-2. **Conectar a MikroTik** — usando IP + credenciales del `.env`.
+2. **Conectar a MikroTik** — con la IP, el usuario y la contraseña que ingresás en la UI (o pasás al CLI), igual que Winbox.
 3. **Cruzar datos** — busca qué entradas del address-list coinciden con IPs del CSV y cuáles faltarían agregar.
 4. **Acción**:
    - `/preview`: **solo lectura**. Devuelve qué se suspendería — incluyendo las IPs que `/script` agregaría, con `id` vacío porque todavía no existen — **sin escribir nada en el router**.
@@ -85,12 +85,12 @@ curl http://127.0.0.1:8000/readOptions
 
 | Método | Ruta | Auth | Body | Respuesta | Qué hace |
 |--------|------|------|------|-----------|----------|
-| `POST` | `/preview` | Bearer | `{IP_MIKROTIK, DATE, LIST_NAME?}` | `[[{id, comment}], [{id, comment}]]` | Muestra qué IPs se suspenderían, sin escribir en el router |
-| `POST` | `/script` | Bearer | `{IP_MIKROTIK, DATE, LIST_NAME?}` | `{"message": "done"}` | Ejecuta la suspensión en el router |
+| `POST` | `/preview` | — | `{IP_MIKROTIK, USER, PASSWORD, DATE, LIST_NAME?}` | `[[{id, comment}], [{id, comment}]]` | Muestra qué IPs se suspenderían, sin escribir en el router |
+| `POST` | `/script` | — | `{IP_MIKROTIK, USER, PASSWORD, DATE, LIST_NAME?}` | `{"message": "done"}` | Ejecuta la suspensión en el router |
 | `GET` | `/config` | — | — | `{"list_name": "suspendido"}` | Nombre de address-list configurado (no secreto) |
-| `POST` | `/addOptions` | Bearer | — | `{"message": "..."}` | Inserta las IPs por defecto en la DB (idempotente) |
-| `GET` | `/readOptions` | Bearer | — | `{"data": ["ip1", "ip2"]}` | Lista las IPs guardadas |
-| `POST` | `/addDoc` | Bearer | `{"option": "x.x.x.x"}` | `{"message": "..."}` | Agrega una IP a las opciones |
+| `POST` | `/addOptions` | — | — | `{"message": "..."}` | Inserta las IPs por defecto en la DB (idempotente) |
+| `GET` | `/readOptions` | — | — | `{"data": ["ip1", "ip2"]}` | Lista las IPs guardadas |
+| `POST` | `/addDoc` | — | `{"option": "x.x.x.x"}` | `{"message": "..."}` | Agrega una IP a las opciones |
 | `GET` | `/health` | — | — | `{"status": "ok"}` | Health check |
 
 ### Formato de `/preview`
@@ -169,55 +169,6 @@ curl http://127.0.0.1:8000/readOptions
 
 ---
 
-## Authentication
-
-Los endpoints de la API (todos menos `/health`) requieren un Bearer token **si y solo si** la variable de entorno `API_KEY` está configurada. Si `API_KEY` está vacía o no está definida, la API corre **sin autenticación** y se loguea un WARNING grande al arranque.
-
-**Diseñado así** para que el dev local funcione out-of-the-box. **Activá la auth antes de exponer el servicio más allá de tu workstation**.
-
-### Setup
-
-```bash
-# 1. Generá una key segura:
-python -c "import secrets; print(secrets.token_urlsafe(32))"
-
-# 2. Pegala en tu .env:
-API_KEY=la_key_que_te_dio_el_paso_1
-
-# 3. Reiniciá el servicio. Vas a ver el WARNING desaparecer y los
-#    endpoints protegidos ahora rechazan requests sin Authorization header.
-```
-
-### Uso desde curl
-
-```bash
-# Sin auth (rechazado 401):
-curl -X POST http://127.0.0.1:8000/preview \
-  -H "Content-Type: application/json" \
-  -d '{"IP_MIKROTIK":"192.168.88.1","DATE":"2025-06-01"}'
-
-# Con auth (OK):
-curl -X POST http://127.0.0.1:8000/preview \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer la_key_que_te_dio_el_paso_1" \
-  -d '{"IP_MIKROTIK":"192.168.88.1","DATE":"2025-06-01"}'
-```
-
-### Qué endpoints se protegen
-
-| Endpoint | Auth |
-|---|---|
-| `/health` | Pública (para health checks externos) |
-| `/preview`, `/script` | Bearer (ejecuta cambios en MikroTik) |
-| `/addOptions`, `/readOptions`, `/addDoc` | Bearer (lee/modifica DB) |
-
-### Frontend web
-
-El frontend estático (`/`) **no está integrado con la auth** — está pensado para uso en dev sin auth. Si activás `API_KEY`, vas a ver un error 401 amigable en la UI explicando cómo autenticarte desde curl o un cliente HTTP. Si necesitás un frontend protegido, abrí un issue.
-
-### Comparación timing-safe
-
-La comparación del token usa `secrets.compare_digest()` (no `==`) para evitar timing attacks que podrían filtrar el token byte a byte.
 
 ## Setup paso a paso
 
@@ -229,8 +180,6 @@ Necesitás un router MikroTik con la API habilitada (puerto 8728 por default) y 
 
 ```ini
 # MikroTik
-USER_MIKROTIK=admin
-PASS_MIKROTIK=tu_password
 
 # Address-list que administra la herramienta (default: suspendido)
 LIST_NAME=suspendido
@@ -277,7 +226,7 @@ Si querés un setup "install-and-forget", la forma más simple es Docker Compose
 ```bash
 # 1. Configurá tus credenciales
 cp .env.example .env
-# Editá .env: USER_MIKROTIK, PASS_MIKROTIK y (opcional) API_KEY
+# Editá .env si querés cambiar rutas, host o puerto
 
 # 2. Build + arrancar en background
 docker compose up -d
@@ -322,7 +271,6 @@ docker logs -f mikrotik-suspender
 
 - El container escucha en `0.0.0.0:8000` (ignora el `HOST=127.0.0.1` del `.env.example`, que es para uso sin Docker).
 - El healthcheck interno contra `/health` hace que `docker compose ps` muestre el estado real.
-- Si activás `API_KEY` en el `.env`, el panel web va a mostrar errores 401 (esperado — la UI es dev-only). Usá curl con `Authorization: Bearer <key>` o abrí un issue si querés una UI protegida.
 
 ---
 
@@ -333,7 +281,7 @@ Si querés disparar una suspensión sin levantar el server, hay una CLI que habl
 ### Setup
 
 ```bash
-# Mismo .env que el server — lee USER_MIKROTIK y PASS_MIKROTIK
+# El CLI pide IP, usuario y contraseña en cada corrida
 cp .env.example .env  # editar con tus credenciales
 
 # El bootstrap corre solo al invocar la CLI (crea data/, semilla CSV, etc.)
@@ -343,16 +291,16 @@ cp .env.example .env  # editar con tus credenciales
 
 ```bash
 # Ver qué se suspendería (sin tocar el router)
-python -m cli preview --mikrotik 192.168.88.1
+python -m cli preview --mikrotik 192.168.88.1 --user admin --password 'tu_password'
 
 # Ejecutar la suspensión
-python -m cli run --mikrotik 192.168.88.1
+python -m cli run --mikrotik 192.168.88.1 --user admin --password 'tu_password'
 
 # Especificar fecha custom (default: hoy)
-python -m cli run --mikrotik 192.168.88.1 --date 2025-06-01
+python -m cli run --mikrotik 192.168.88.1 --user admin --password 'tu_password' --date 2025-06-01
 
 # Output JSON en vez de tabla
-python -m cli preview --mikrotik 192.168.88.1 --json
+python -m cli preview --mikrotik 192.168.88.1 --user admin --password 'tu_password' --json
 
 # Elegir otro address-list para esta corrida (default: LIST_NAME del .env)
 python -m cli run --mikrotik 192.168.88.1 --list cortados
@@ -379,7 +327,6 @@ ID    CURRENT           FINAL
 
 - La CLI **no usa el server HTTP** — no hay que tener `uvicorn` corriendo.
 - Usa la misma config que el server (`.env`), así que se autentica al MikroTik con las mismas credenciales.
-- Si activás `API_KEY` en el `.env`, la CLI **lo ignora** — la auth es solo para HTTP. La CLI se asume corrida por alguien con acceso a la máquina.
 
 ---
 

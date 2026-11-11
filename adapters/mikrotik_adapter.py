@@ -6,7 +6,6 @@ import routeros_api
 
 from core.models import AddressListEntry
 from core.interfaces import MikroTikClient
-from core.config import config
 
 
 LIST_MATCHERS = ("src-address-list", "dst-address-list")
@@ -34,11 +33,11 @@ class RouterOSClient(MikroTikClient):
         self._connection: routeros_api.RouterOsApiPool | None = None
         self._api: routeros_api.RouterOsApi | None = None
 
-    async def connect(self, ip: str) -> None:
+    async def connect(self, ip: str, user: str, password: str) -> None:
         self._connection = routeros_api.RouterOsApiPool(
             ip,
-            username=config.mikrotik_user,
-            password=config.mikrotik_password,
+            username=user,
+            password=password,
             plaintext_login=True,
         )
         self._api = self._connection.get_api()

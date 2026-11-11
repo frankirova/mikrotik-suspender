@@ -10,6 +10,8 @@ const $$ = (sel) => document.querySelectorAll(sel);
 
 const dom = {
   ip:         $('#ip'),
+  user:       $('#user'),
+  password:   $('#password'),
   date:       $('#date'),
   list:       $('#list'),
   previewBtn: $('#btn-preview'),
@@ -77,10 +79,13 @@ function todayStr() {
 
 async function handlePreview(execute = false) {
   const ip   = dom.ip.value.trim();
+  const user = dom.user.value.trim();
+  const pass = dom.password.value;
   const date = dom.date.value || todayStr();
   const listName = dom.list ? dom.list.value.trim() : '';
 
   if (!ip) { showAlert('Ingresá la IP del MikroTik', 'error'); return; }
+  if (!user || !pass) { showAlert('Ingresá usuario y contraseña del MikroTik', 'error'); return; }
 
   const btn = execute ? dom.execBtn : dom.previewBtn;
   setBtnLoading(btn, true);
@@ -89,6 +94,8 @@ async function handlePreview(execute = false) {
     const endpoint = execute ? '/script' : '/preview';
     const result = await api('POST', endpoint, {
       IP_MIKROTIK: ip,
+      USER: user,
+      PASSWORD: pass,
       DATE: date,
       LIST_NAME: listName || null,
     });

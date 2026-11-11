@@ -31,15 +31,11 @@ HERE = Path(__file__).parent
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     bootstrap.run()
-    if not config.api_key:
-        logging.warning(
-            "\n" + "=" * 70 + "\n"
-            "  API authentication is DISABLED.\n"
-            "  To enable, set API_KEY in your .env file. Generate one with:\n"
-            "    python -c \"import secrets; print(secrets.token_urlsafe(32))\"\n"
-            "  Do NOT expose this service to the public internet without auth.\n"
-            + "=" * 70
-        )
+    logging.warning(
+        "\n" + "=" * 70 + "\n"
+        "  This service has no authentication.\n"
+        "  Keep it on loopback; never expose it to the public internet.\n" + "=" * 70
+    )
     yield
 
 
