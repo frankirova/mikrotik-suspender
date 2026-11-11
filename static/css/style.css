@@ -247,6 +247,19 @@ tr:last-child td { border-bottom: none; }
 }
 .empty-state .icon { font-size: 2rem; margin-bottom: 8px; }
 
+/* Preview rows whose address-list entry does not exist yet. */
+.pending {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 99px;
+  border: 1px dashed var(--warning);
+  color: var(--warning);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 /* ── Responsive ───────────────────────────────────────────── */
 @media (max-width: 600px) {
   body { padding: 12px; }

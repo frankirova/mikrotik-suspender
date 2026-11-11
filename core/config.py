@@ -39,6 +39,11 @@ class AppConfig:
     mikrotik_user: str = field(default_factory=lambda: _required("USER_MIKROTIK"))
     mikrotik_password: str = field(default_factory=lambda: _required("PASS_MIKROTIK"))
 
+    # ── Address list ──────────────────────────────────────────
+    # Name of the firewall address-list this tool owns. Each deployment can pick
+    # its own (LIST_NAME in .env); a single run can override it.
+    list_name: str = field(default_factory=lambda: _optional("LIST_NAME", "suspendido"))
+
     # ── Data (replaces Google Sheets + MongoDB) ───────────────
     data_dir: Path = field(default_factory=lambda: _expand_path(_optional("DATA_DIR", "./data")))
     csv_path: Path = field(default_factory=lambda: _expand_path(_optional("CSV_PATH", "./data/clientes.csv")))

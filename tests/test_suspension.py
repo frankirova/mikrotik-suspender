@@ -114,3 +114,54 @@ async def test_execute_disables_and_updates_comments(use_cases, mikrotik):
     # Comments should be updated with date
     for entry_id, comment in mikrotik.comment_updates:
         assert "// SUSPENDIDO - 2025-01-15" in comment
+
+
+@pytest.mark.asyncio
+async def test_preview_does_not_write_to_the_router(use_cases, mikrotik):
+    """A preview must be read-only: no new entries, no disables, no comments."""
+    before = [dict(entry) for entry in mikrotik.address_list["suspendido"]]
+
+    result = await use_cases.preview(
+        mikrotik_ip="192.168.1.1",
+        date="2025-01-15",
+    )
+
+    # The router is untouched: the pending IP was projected, not added.
+    assert mikrotik.address_list["suspendido"] == before
+    assert mikrotik.disabled_ids == []
+    assert mikrotik.comment_updates == []
+
+    # The operator still sees what a run would do, including the pending IP.
+    assert [e.address for e in result.current_comments] == ["10.0.0.1", "10.0.0.2"]
+    assert result.current_comments[0].id == "id-10.0.0.1"
+    assert result.current_comments[1].id == ""  # not created yet
+    assert result.final_comments[0].comment == "Cliente A// SUSPENDIDO - 2025-01-15"
+    assert result.final_comments[1].comment == "Cliente B// SUSPENDIDO - 2025-01-15"
+
+
+@pytest.mark.asyncio
+async def test_uses_the_given_list_name(use_cases, mikrotik):
+    """The address-list name is configurable per run."""
+    await use_cases.execute(
+        mikrotik_ip="192.168.1.1",
+        date="2025-01-15",
+        list_name="morosos",
+    )
+
+    # The target list starts empty, so both clients are added there.
+    assert [e["address"] for e in mikrotik.address_list["morosos"]] == ["10.0.0.1", "10.0.0.2"]
+    # The default list is left untouched.
+    assert [e["address"] for e in mikrotik.address_list["suspendido"]] == ["10.0.0.1"]
+
+
+@pytest.mark.asyncio
+async def test_list_name_defaults_to_config(use_cases, mikrotik, monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr("use_cases.suspension.config", SimpleNamespace(list_name="morosos"))
+
+    result = await use_cases.preview(mikrotik_ip="192.168.1.1", date="2025-01-15")
+
+    assert result.list_name == "morosos"
+    # "morosos" does not exist yet, so both clients are projected as pending.
+    assert [e.id for e in result.current_comments] == ["", ""]

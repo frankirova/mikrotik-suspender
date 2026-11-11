@@ -6,10 +6,16 @@ routes.py and mikrotik.py, without any framework or transport dependency.
 
 from __future__ import annotations
 
+from core.config import config
 from core.models import SheetEntry, AddressListEntry, SuspensionPreview
 from core.interfaces import SheetReader, MikroTikClient
 
-SUSPEND_LIST = "suspendido"
+SUSPEND_LIST = "suspendido"  # fallback when neither the run nor the config picks one
+
+
+def _resolve_list_name(list_name: str | None) -> str:
+    """A per-run name wins; empty falls back to LIST_NAME from the environment."""
+    return (list_name or "").strip() or config.list_name
 
 
 def _build_comment_map(
@@ -43,6 +49,26 @@ def _build_comment_map(
     return matched, final
 
 
+def _project_pending_entries(
+    sheet_entries: list[SheetEntry],
+    mkt_entries: list[AddressListEntry],
+) -> list[AddressListEntry]:
+    """Entries a run would create, without creating them.
+
+The preview must not touch the router: on a real RouterOS a new address-list
+entry is created with `disabled=false`, so syncing during a preview would
+already apply the block. Pending entries are projected with an empty id, which
+the API surfaces as "not created yet".
+    """
+    existing_ips = {e.address for e in mkt_entries}
+    pending = [
+        AddressListEntry(id="", address=entry.ip, comment=entry.name)
+        for entry in sheet_entries
+        if entry.ip not in existing_ips
+    ]
+    return list(mkt_entries) + pending
+
+
 class SuspensionUseCases:
     """Orchestrates the preview + execute flows."""
 
@@ -54,44 +80,49 @@ class SuspensionUseCases:
         self,
         sheet_entries: list[SheetEntry],
         mkt_entries: list[AddressListEntry],
+        list_name: str,
     ) -> list[AddressListEntry]:
         """Add IPs that are in the sheet but not yet in the MikroTik list."""
         existing_ips = {e.address for e in mkt_entries}
         for entry in sheet_entries:
             if entry.ip not in existing_ips:
-                await self._mikrotik.add_address(entry.ip, SUSPEND_LIST, entry.name)
+                await self._mikrotik.add_address(entry.ip, list_name, entry.name)
 
         # Return the refreshed list after addition
-        return await self._mikrotik.get_address_list(SUSPEND_LIST)
+        return await self._mikrotik.get_address_list(list_name)
 
     async def preview(
         self,
         mikrotik_ip: str,
         date: str,
+        list_name: str | None = None,
     ) -> SuspensionPreview:
-        """Preview what would be suspended. Also syncs new entries (matching original behaviour)."""
+        """Preview what would be suspended. Read-only: the router is never written."""
+        name = _resolve_list_name(list_name)
         sheet_entries = await self._sheets.read_entries()
         await self._mikrotik.connect(mikrotik_ip)
 
-        current_list = await self._mikrotik.get_address_list(SUSPEND_LIST)
-        updated_list = await self._sync_new_entries(sheet_entries, current_list)
+        current_list = await self._mikrotik.get_address_list(name)
+        projected_list = _project_pending_entries(sheet_entries, current_list)
 
-        matched, final = _build_comment_map(sheet_entries, updated_list, date)
+        matched, final = _build_comment_map(sheet_entries, projected_list, date)
 
         await self._mikrotik.disconnect()
-        return SuspensionPreview(current_comments=matched, final_comments=final)
+        return SuspensionPreview(current_comments=matched, final_comments=final, list_name=name)
 
     async def execute(
         self,
         mikrotik_ip: str,
         date: str,
+        list_name: str | None = None,
     ) -> None:
         """Execute the suspension: sync, disable entries, and update comments."""
+        name = _resolve_list_name(list_name)
         sheet_entries = await self._sheets.read_entries()
         await self._mikrotik.connect(mikrotik_ip)
 
-        current_list = await self._mikrotik.get_address_list(SUSPEND_LIST)
-        updated_list = await self._sync_new_entries(sheet_entries, current_list)
+        current_list = await self._mikrotik.get_address_list(name)
+        updated_list = await self._sync_new_entries(sheet_entries, current_list, name)
 
         matched, final = _build_comment_map(sheet_entries, updated_list, date)
 

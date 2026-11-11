@@ -13,6 +13,7 @@ from datetime import date as _date
 
 import bootstrap
 from api.dependencies import get_suspension_use_cases
+from core.config import config
 from use_cases.suspension import SuspensionUseCases
 
 logger = logging.getLogger(__name__)
@@ -32,21 +33,33 @@ def _format_table(rows: list[tuple[str, str, str]]) -> str:
     return "\n".join(lines)
 
 
-async def _run_preview(uc: SuspensionUseCases, mikrotik_ip: str, day: str) -> int:
+async def _run_preview(
+    uc: SuspensionUseCases,
+    mikrotik_ip: str,
+    day: str,
+    list_name: str | None,
+) -> int:
     """Show what WOULD be suspended, without executing."""
-    result = await uc.preview(mikrotik_ip=mikrotik_ip, date=day)
+    result = await uc.preview(mikrotik_ip=mikrotik_ip, date=day, list_name=list_name)
     rows = [
         (e.id, e.comment, f.comment)
         for e, f in zip(result.current_comments, result.final_comments)
     ]
+    print(f"address-list: {result.list_name}")
     print(_format_table(rows))
     return 0
 
 
-async def _run_execute(uc: SuspensionUseCases, mikrotik_ip: str, day: str) -> int:
+async def _run_execute(
+    uc: SuspensionUseCases,
+    mikrotik_ip: str,
+    day: str,
+    list_name: str | None,
+) -> int:
     """Execute the suspension on the MikroTik device."""
-    await uc.execute(mikrotik_ip=mikrotik_ip, date=day)
-    print(f"OK: suspension executed against {mikrotik_ip} for date {day}")
+    await uc.execute(mikrotik_ip=mikrotik_ip, date=day, list_name=list_name)
+    effective = (list_name or "").strip() or config.list_name
+    print(f"OK: suspension executed against {mikrotik_ip} for date {day} (address-list {effective})")
     return 0
 
 
@@ -66,6 +79,12 @@ def _build_parser() -> argparse.ArgumentParser:
             "--date", "-d",
             default=_date.today().isoformat(),
             help="Suspension date (default: today, ISO format YYYY-MM-DD).",
+        )
+        sub.add_argument(
+            "--list", "-l",
+            dest="list_name",
+            default=None,
+            help="Firewall address-list name (default: LIST_NAME from .env, else 'suspendido').",
         )
         sub.add_argument(
             "--json", "-j",
@@ -95,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
     coro = _run_preview if args.command == "preview" else _run_execute
 
     try:
-        code = asyncio.run(coro(uc, args.mikrotik, args.date))
+        code = asyncio.run(coro(uc, args.mikrotik, args.date, args.list_name))
     except Exception as exc:
         logger.exception("CLI failed")
         print(f"ERROR: {exc}", file=sys.stderr)

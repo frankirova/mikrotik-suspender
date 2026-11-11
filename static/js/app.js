@@ -11,6 +11,7 @@ const $$ = (sel) => document.querySelectorAll(sel);
 const dom = {
   ip:         $('#ip'),
   date:       $('#date'),
+  list:       $('#list'),
   previewBtn: $('#btn-preview'),
   execBtn:    $('#btn-exec'),
   alert:      $('#alert'),
@@ -76,6 +77,7 @@ function todayStr() {
 async function handlePreview(execute = false) {
   const ip   = dom.ip.value.trim();
   const date = dom.date.value || todayStr();
+  const listName = dom.list ? dom.list.value.trim() : '';
 
   if (!ip) { showAlert('Ingresá la IP del MikroTik', 'error'); return; }
 
@@ -87,6 +89,7 @@ async function handlePreview(execute = false) {
     const result = await api('POST', endpoint, {
       IP_MIKROTIK: ip,
       DATE: date,
+      LIST_NAME: listName || null,
     });
 
     if (execute) {
@@ -100,7 +103,8 @@ async function handlePreview(execute = false) {
     state.lastResult = result;
     renderPreview(result);
     dom.resultCard.style.display = 'block';
-    showAlert(`Se encontraron ${result[0]?.length || 0} IPs para suspender`, 'info');
+    const listLabel = listName || state.listName || 'suspendido';
+    showAlert(`Se encontraron ${result[0]?.length || 0} IPs para suspender en '${listLabel}'`, 'info');
   } catch (err) {
     showAlert(`Error: ${err.message}`, 'error');
   } finally {
@@ -118,8 +122,10 @@ function renderPreview([currentComments, finalComments]) {
 
   tbody.innerHTML = currentComments.map((curr, i) => {
     const final = finalComments[i] || {};
+    // Empty id means the entry does not exist yet: /script would create it.
+    const id = curr.id ? `<code>${escHtml(curr.id)}</code>` : '<span class="pending">nuevo</span>';
     return `<tr>
-      <td><code>${escHtml(curr.id)}</code></td>
+      <td>${id}</td>
       <td><code>${escHtml(final.comment || curr.comment)}</code></td>
     </tr>`;
   }).join('');
@@ -195,6 +201,21 @@ function init() {
 
   // Cargar opciones al inicio
   loadOptions();
+  loadConfig();
+}
+
+/* ─── Server config (address-list name) ───────────────── */
+
+async function loadConfig() {
+  try {
+    const cfg = await api('GET', '/config');
+    if (cfg && cfg.list_name) {
+      state.listName = cfg.list_name;
+      if (dom.list) dom.list.placeholder = cfg.list_name;
+    }
+  } catch (err) {
+    // Non-fatal: the field stays empty and the server default applies.
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);

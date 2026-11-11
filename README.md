@@ -1,6 +1,6 @@
 # IP Suspension Tool — MikroTik + CSV
 
-Automatiza el bloqueo (suspensión) de direcciones IP en un **MikroTik RouterOS** a partir de un **CSV local**. Cada vez que se ejecuta, lee los clientes del CSV, los agrega al address-list `suspendido` del router y activa el bloqueo.
+Automatiza el bloqueo (suspensión) de direcciones IP en un **MikroTik RouterOS** a partir de un **CSV local**. Cada vez que se ejecuta, lee los clientes del CSV, los agrega al address-list configurado (por defecto `suspendido`) del router y activa el bloqueo.
 
 > Diseñada para automatizar la suspensión de clientes morosos en el firewall de manera masiva y sin entrar al router manualmente.
 
@@ -66,11 +66,14 @@ curl http://127.0.0.1:8000/readOptions
 
 1. **Leer CSV** — se lee `data/clientes.csv` y se obtienen los pares `{ip, nombre}`.
 2. **Conectar a MikroTik** — usando IP + credenciales del `.env`.
-3. **Sincronizar** — para cada IP del CSV que aún no está en el address-list `suspendido`, la agrega con el nombre del cliente como comentario.
-4. **Cruzar datos** — busca qué entradas del address-list coinciden con IPs del CSV.
-5. **Acción**:
-   - `/preview`: devuelve qué se suspendería **sin ejecutar nada**.
-   - `/script`: **ejecuta** la suspensión — activa cada entrada (`disabled=false`) y agrega la fecha al comentario.
+3. **Cruzar datos** — busca qué entradas del address-list coinciden con IPs del CSV y cuáles faltarían agregar.
+4. **Acción**:
+   - `/preview`: **solo lectura**. Devuelve qué se suspendería — incluyendo las IPs que `/script` agregaría, con `id` vacío porque todavía no existen — **sin escribir nada en el router**.
+   - `/script`: **ejecuta** la suspensión — sincroniza las IPs faltantes (`add`), activa cada entrada (`disabled=false`) y agrega la fecha al comentario.
+
+> El preview no sincroniza a propósito: en RouterOS una entrada nueva se crea con
+> `disabled=false`, así que sincronizar durante el preview ya aplicaría el bloqueo
+> (si el firewall dropea el address-list `suspendido`).
 
 ---
 
@@ -78,8 +81,9 @@ curl http://127.0.0.1:8000/readOptions
 
 | Método | Ruta | Auth | Body | Respuesta | Qué hace |
 |--------|------|------|------|-----------|----------|
-| `POST` | `/preview` | Bearer | `{IP_MIKROTIK, DATE}` | `[[{id, comment}], [{id, comment}]]` | Muestra qué IPs se suspenderían sin ejecutar |
-| `POST` | `/script` | Bearer | `{IP_MIKROTIK, DATE}` | `{"message": "done"}` | Ejecuta la suspensión en el router |
+| `POST` | `/preview` | Bearer | `{IP_MIKROTIK, DATE, LIST_NAME?}` | `[[{id, comment}], [{id, comment}]]` | Muestra qué IPs se suspenderían, sin escribir en el router |
+| `POST` | `/script` | Bearer | `{IP_MIKROTIK, DATE, LIST_NAME?}` | `{"message": "done"}` | Ejecuta la suspensión en el router |
+| `GET` | `/config` | — | — | `{"list_name": "suspendido"}` | Nombre de address-list configurado (no secreto) |
 | `POST` | `/addOptions` | Bearer | — | `{"message": "..."}` | Inserta las IPs por defecto en la DB (idempotente) |
 | `GET` | `/readOptions` | Bearer | — | `{"data": ["ip1", "ip2"]}` | Lista las IPs guardadas |
 | `POST` | `/addDoc` | Bearer | `{"option": "x.x.x.x"}` | `{"message": "..."}` | Agrega una IP a las opciones |
@@ -93,14 +97,17 @@ La respuesta es una lista de **dos sublistas**:
 [
   [  ← lista 0: comentarios actuales de las IPs a suspender
     {"id": "*1", "comment": "Cliente A"},
-    {"id": "*2", "comment": "Cliente B"}
+    {"id": "", "comment": "Cliente B"}   ← todavía no existe en el router
   ],
   [  ← lista 1: mismos elementos con fecha de suspensión agregada
     {"id": "*1", "comment": "Cliente A// SUSPENDIDO - 2025-01-15"},
-    {"id": "*2", "comment": "Cliente B// SUSPENDIDO - 2025-01-15"}
+    {"id": "", "comment": "Cliente B// SUSPENDIDO - 2025-01-15"}
   ]
 ]
 ```
+
+Ambas sublistas están alineadas por índice: `id` vacío significa que `/script`
+crearía esa entrada. El preview nunca crea ni modifica entradas.
 
 ### Frontend web (MVP)
 
@@ -206,6 +213,9 @@ Necesitás un router MikroTik con la API habilitada (puerto 8728 por default) y 
 # MikroTik
 USER_MIKROTIK=admin
 PASS_MIKROTIK=tu_password
+
+# Address-list que administra la herramienta (default: suspendido)
+LIST_NAME=suspendido
 
 # Data (rutas, todas relativas al directorio del proyecto)
 CSV_PATH=./data/clientes.csv
@@ -325,6 +335,9 @@ python -m cli run --mikrotik 192.168.88.1 --date 2025-06-01
 
 # Output JSON en vez de tabla
 python -m cli preview --mikrotik 192.168.88.1 --json
+
+# Elegir otro address-list para esta corrida (default: LIST_NAME del .env)
+python -m cli run --mikrotik 192.168.88.1 --list cortados
 ```
 
 ### Ejemplo de output (`preview`)

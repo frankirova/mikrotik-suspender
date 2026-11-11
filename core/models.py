@@ -23,3 +23,4 @@ class SuspensionPreview:
     """Result of a preview run: before and after comment states."""
     current_comments: list[AddressListEntry]
     final_comments: list[AddressListEntry]
+    list_name: str = "suspendido"

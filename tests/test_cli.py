@@ -141,3 +141,19 @@ def test_unknown_subcommand_fails(fake_uc):
     code, _, err = _invoke(["bogus"])
     assert code == 2
     assert "invalid choice" in err.lower()
+
+
+def test_run_with_custom_list(fake_uc):
+    uc, fake_mt = fake_uc
+    from core.models import SheetEntry
+    uc._sheets = _FakeSheetReader(entries=[SheetEntry(ip="10.0.0.1", name="Cliente A")])  # type: ignore[attr-defined]
+
+    code, out, err = _invoke([
+        "run", "--mikrotik", "192.168.1.1", "--date", "2025-01-15", "--list", "morosos",
+    ])
+
+    assert code == 0
+    assert "morosos" in out
+    assert [e["address"] for e in fake_mt.address_list["morosos"]] == ["10.0.0.1"]
+    # The default list keeps its original entry.
+    assert [e["address"] for e in fake_mt.address_list["suspendido"]] == ["10.0.0.1"]

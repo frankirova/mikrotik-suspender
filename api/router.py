@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from api.schemas import SuspensionRequest, AddOptionRequest
 from api.dependencies import get_suspension_use_cases, get_options_use_cases
 from api.auth import verify_api_key
+from core.config import config
 from bootstrap import DEFAULT_OPTIONS
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ async def preview(body: SuspensionRequest) -> list[list[dict[str, str]]]:
         result = await uc.preview(
             mikrotik_ip=body.IP_MIKROTIK,
             date=body.DATE,
+            list_name=body.LIST_NAME,
         )
         return [
             [{"id": e.id, "comment": e.comment} for e in result.current_comments],
@@ -51,6 +53,7 @@ async def script(body: SuspensionRequest) -> dict[str, str]:
         await uc.execute(
             mikrotik_ip=body.IP_MIKROTIK,
             date=body.DATE,
+            list_name=body.LIST_NAME,
         )
         return {"message": "done"}
     except Exception:
@@ -103,3 +106,11 @@ async def add_doc(body: AddOptionRequest) -> dict[str, str]:
 async def health() -> dict[str, str]:
     """Lightweight health check — used by the bootstrap to confirm wiring."""
     return {"status": "ok"}
+
+
+# ── Public config ─────────────────────────────────────────────
+
+@router.get("/config")
+async def public_config() -> dict[str, str]:
+    """Non-secret configuration the UI/CLI need to show effective defaults."""
+    return {"list_name": config.list_name}
