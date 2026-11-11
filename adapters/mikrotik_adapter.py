@@ -9,6 +9,24 @@ from core.interfaces import MikroTikClient
 from core.config import config
 
 
+LIST_MATCHERS = ("src-address-list", "dst-address-list")
+
+
+def referenced_lists(rules: list[dict[str, str]]) -> set[str]:
+    """Address-list names that firewall filter rules match against.
+
+    RouterOS reports a negated matcher as "!name"; the leading bang is stripped
+    because the list is still referenced (just inverted).
+    """
+    names: set[str] = set()
+    for rule in rules:
+        for key in LIST_MATCHERS:
+            value = (rule.get(key) or "").strip()
+            if value:
+                names.add(value.lstrip("!"))
+    return names
+
+
 class RouterOSClient(MikroTikClient):
     """Adapter for MikroTik RouterOS API communication."""
 
@@ -38,6 +56,11 @@ class RouterOSClient(MikroTikClient):
             AddressListEntry(id=entry["id"], address=entry["address"], comment=entry.get("comment", ""))
             for entry in raw
         ]
+
+    async def get_referenced_lists(self) -> set[str]:
+        api = self._assert_connected()
+        resource = api.get_resource("/ip/firewall/filter")
+        return referenced_lists(resource.get())
 
     async def add_address(self, address: str, list_name: str, comment: str) -> None:
         api = self._assert_connected()

@@ -32,6 +32,15 @@ class MikroTikClient(ABC):
         ...
 
     @abstractmethod
+    async def get_referenced_lists(self) -> set[str]:
+        """Names of address-lists matched by firewall filter rules.
+
+        Used to warn the operator when a list no rule drops: writing entries
+        into it would silently suspend nobody.
+        """
+        ...
+
+    @abstractmethod
     async def add_address(self, address: str, list_name: str, comment: str) -> None:
         """Add an IP to a firewall address-list."""
         ...

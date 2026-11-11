@@ -19,6 +19,7 @@ const dom = {
   resultCard: $('#result-card'),
   resultBody: $('#result-body'),
   execResult: $('#exec-result'),
+  listWarning: $('#list-warning'),
   optionsList: $('#options-list'),
   optionsCard: $('#options-card'),
   optionInput: $('#option-input'),
@@ -102,6 +103,7 @@ async function handlePreview(execute = false) {
     // Preview mode — render table
     state.lastResult = result;
     renderPreview(result);
+    renderListWarning(result[2]);
     dom.resultCard.style.display = 'block';
     const listLabel = listName || state.listName || 'suspendido';
     showAlert(`Se encontraron ${result[0]?.length || 0} IPs para suspender en '${listLabel}'`, 'info');
@@ -129,6 +131,25 @@ function renderPreview([currentComments, finalComments]) {
       <td><code>${escHtml(final.comment || curr.comment)}</code></td>
     </tr>`;
   }).join('');
+}
+
+// meta = {list_name, list_has_entries, referenced_by_rules}
+function renderListWarning(meta) {
+  if (!dom.listWarning) return;
+  if (!meta || meta.referenced_by_rules) {
+    dom.listWarning.hidden = true;
+    dom.listWarning.innerHTML = '';
+    return;
+  }
+  const name = escHtml(meta.list_name);
+  const missing = meta.list_has_entries
+    ? ''
+    : ` La lista todavía no tiene entradas: se crea al ejecutar.`;
+  dom.listWarning.innerHTML =
+    `⚠ Ninguna regla de firewall usa <code>${name}</code>.${missing} ` +
+    `Si corresponde, agregá <code>src-address-list=${name} action=drop</code>; ` +
+    `si no, revisá el nombre de la lista.`;
+  dom.listWarning.hidden = false;
 }
 
 /* ─── Options ──────────────────────────────────────────── */

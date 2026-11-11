@@ -45,6 +45,9 @@ class _FakeMikroTik(MikroTikClient):
             for e in self.address_list.get(list_name, [])
         ]
 
+    async def get_referenced_lists(self) -> set[str]:
+        return set()
+
     async def add_address(self, address: str, list_name: str, comment: str) -> None:
         self.address_list.setdefault(list_name, []).append({
             "id": f"id-{address}",

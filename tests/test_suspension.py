@@ -27,6 +27,7 @@ class _FakeMikroTik(MikroTikClient):
         self.address_list: dict[str, list[dict[str, Any]]] = {}
         self.disabled_ids: list[str] = []
         self.comment_updates: list[tuple[str, str]] = []
+        self.referenced_lists: set[str] = set()
 
     async def connect(self, ip: str) -> None:
         if "suspendido" not in self.address_list:
@@ -35,6 +36,9 @@ class _FakeMikroTik(MikroTikClient):
     async def get_address_list(self, list_name: str) -> list[AddressListEntry]:
         raw = self.address_list.get(list_name, [])
         return [AddressListEntry(id=e["id"], address=e["address"], comment=e["comment"]) for e in raw]
+
+    async def get_referenced_lists(self) -> set[str]:
+        return set(self.referenced_lists)
 
     async def add_address(self, address: str, list_name: str, comment: str) -> None:
         if list_name not in self.address_list:
@@ -165,3 +169,21 @@ async def test_list_name_defaults_to_config(use_cases, mikrotik, monkeypatch):
     assert result.list_name == "morosos"
     # "morosos" does not exist yet, so both clients are projected as pending.
     assert [e.id for e in result.current_comments] == ["", ""]
+
+
+@pytest.mark.asyncio
+async def test_preview_reports_an_unreferenced_list(use_cases, mikrotik):
+    """The list has entries but no firewall rule matches it: warn the operator."""
+    result = await use_cases.preview(mikrotik_ip="192.168.1.1", date="2025-01-15")
+
+    assert result.list_has_entries is True
+    assert result.referenced_by_rules is False
+
+
+@pytest.mark.asyncio
+async def test_preview_reports_a_referenced_list(use_cases, mikrotik):
+    mikrotik.referenced_lists = {"suspendido"}
+
+    result = await use_cases.preview(mikrotik_ip="192.168.1.1", date="2025-01-15")
+
+    assert result.referenced_by_rules is True

@@ -247,6 +247,24 @@ tr:last-child td { border-bottom: none; }
 }
 .empty-state .icon { font-size: 2rem; margin-bottom: 8px; }
 
+/* Warning: the chosen address-list is not matched by any firewall rule. */
+.list-warning {
+  background: #fff4e5;
+  border: 1px solid #ffd699;
+  color: #7a4a00;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  margin-bottom: 12px;
+}
+.list-warning code {
+  background: rgba(122, 74, 0, 0.12);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.list-warning[hidden] { display: none; }
+
 /* Preview rows whose address-list entry does not exist yet. */
 .pending {
   display: inline-block;

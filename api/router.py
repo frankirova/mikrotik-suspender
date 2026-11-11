@@ -23,11 +23,12 @@ router = APIRouter()
 # ── Suspension endpoints ──────────────────────────────────────
 
 @router.post("/preview", dependencies=[Depends(verify_api_key)])
-async def preview(body: SuspensionRequest) -> list[list[dict[str, str]]]:
+async def preview(body: SuspensionRequest) -> list[list[dict[str, str]] | dict[str, object]]:
     """Preview what would happen when suspending the listed IPs.
 
-    Returns the same shape as the original API: [[comment_list], [comment_finally]].
-    Each entry has {id, comment} — matching the pre-refactor contract.
+    Returns [[current_comments], [final_comments], meta]. The first two elements
+    keep the original contract; the third adds the effective list name and
+    whether any firewall rule matches it.
     """
     try:
         uc = get_suspension_use_cases()
@@ -39,6 +40,11 @@ async def preview(body: SuspensionRequest) -> list[list[dict[str, str]]]:
         return [
             [{"id": e.id, "comment": e.comment} for e in result.current_comments],
             [{"id": e.id, "comment": e.comment} for e in result.final_comments],
+            {
+                "list_name": result.list_name,
+                "list_has_entries": result.list_has_entries,
+                "referenced_by_rules": result.referenced_by_rules,
+            },
         ]
     except Exception:
         logger.exception("request failed")

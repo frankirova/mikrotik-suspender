@@ -24,3 +24,7 @@ class SuspensionPreview:
     current_comments: list[AddressListEntry]
     final_comments: list[AddressListEntry]
     list_name: str = "suspendido"
+    #: The list already has entries in the router.
+    list_has_entries: bool = False
+    #: Some firewall filter rule matches this list, so suspending will apply.
+    referenced_by_rules: bool = True

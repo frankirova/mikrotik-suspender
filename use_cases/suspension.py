@@ -103,12 +103,19 @@ class SuspensionUseCases:
         await self._mikrotik.connect(mikrotik_ip)
 
         current_list = await self._mikrotik.get_address_list(name)
+        referenced = await self._mikrotik.get_referenced_lists()
         projected_list = _project_pending_entries(sheet_entries, current_list)
 
         matched, final = _build_comment_map(sheet_entries, projected_list, date)
 
         await self._mikrotik.disconnect()
-        return SuspensionPreview(current_comments=matched, final_comments=final, list_name=name)
+        return SuspensionPreview(
+            current_comments=matched,
+            final_comments=final,
+            list_name=name,
+            list_has_entries=bool(current_list),
+            referenced_by_rules=name in referenced,
+        )
 
     async def execute(
         self,

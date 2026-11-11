@@ -113,6 +113,20 @@ La respuesta es una lista de **dos sublistas**:
 Ambas sublistas están alineadas por índice: `id` vacío significa que `/script`
 crearía esa entrada. El preview nunca crea ni modifica entradas.
 
+Hay un **tercer elemento** con metadatos (agregado después: quien lea `[0]` y
+`[1]` sigue funcionando igual):
+
+```json
+{ "list_name": "suspendido", "list_has_entries": true, "referenced_by_rules": false }
+```
+
+`referenced_by_rules` sale de leer `/ip/firewall/filter` (solo lectura) y buscar
+reglas que matcheen esa lista en `src-address-list` o `dst-address-list`
+(incluida la forma negada `!lista`). Si es `false`, la UI muestra un aviso: la
+app escribiría las IPs en una lista que **ninguna regla dropea**, así que no
+suspendería a nadie. Es el modo de falla silencioso típico de estas
+herramientas, y el aviso es la única forma de detectarlo antes de ejecutar.
+
 ### Frontend web (MVP)
 
 Apuntá el navegador a **http://127.0.0.1:8000** y tenés una interfaz lista para:
